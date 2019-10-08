@@ -1,0 +1,8 @@
+/home/zdrm/Desktop/Fall19/CG/ucg/Assignment_1/build/CMakeFiles/rebuild_cache.dir
+/home/zdrm/Desktop/Fall19/CG/ucg/Assignment_1/build/CMakeFiles/edit_cache.dir
+/home/zdrm/Desktop/Fall19/CG/ucg/Assignment_1/build/src/hull/CMakeFiles/rebuild_cache.dir
+/home/zdrm/Desktop/Fall19/CG/ucg/Assignment_1/build/src/hull/CMakeFiles/convex_hull.dir
+/home/zdrm/Desktop/Fall19/CG/ucg/Assignment_1/build/src/hull/CMakeFiles/edit_cache.dir
+/home/zdrm/Desktop/Fall19/CG/ucg/Assignment_1/build/src/inside/CMakeFiles/rebuild_cache.dir
+/home/zdrm/Desktop/Fall19/CG/ucg/Assignment_1/build/src/inside/CMakeFiles/point_in_polygon.dir
+/home/zdrm/Desktop/Fall19/CG/ucg/Assignment_1/build/src/inside/CMakeFiles/edit_cache.dir

@@ -1,0 +1,22 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/zdrm/Desktop/Fall19/CG/ucg/Assignment_1/src/hull/main.cpp
+algorithm
+-
+complex
+-
+fstream
+-
+iostream
+-
+numeric
+-
+vector
+-
+
