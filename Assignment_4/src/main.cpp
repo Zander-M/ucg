@@ -169,6 +169,11 @@ AlignedBox3d bbox_triangle(const Vector3d &a, const Vector3d &b, const Vector3d 
 	return box;
 }
 
+bool sort_centroid(const Vector3d left, const Vector3d right) {
+	// Sort centroids
+	return left(0) < right(0);
+}
+
 AABBTree::AABBTree(const MatrixXd &V, const MatrixXi &F) {
 	// Compute the centroids of all the triangles in the input mesh
 	MatrixXd centroids(F.rows(), V.cols());
@@ -180,6 +185,71 @@ AABBTree::AABBTree(const MatrixXd &V, const MatrixXi &F) {
 		centroids.row(i) /= F.cols();
 	}
 
+	std::vector<Node> triangle_list;
+	for (int i = 0; i < F.rows(); ++i) {
+		Node face_node;	
+		face_node.left = -1;
+		face_node.right = -1;
+		face_node.triangle = i;
+		Matrix3d vertices;
+		face_node.bbox = bbox_triangle(V.row(F(i, 0)), V.row(F(i, 1)), V.row(F(i, 2)));
+		triangle_list.push_back(face_node);
+	}
+
+	std::sort(triangle_list.begin(), triangle_list.end(), &sort_centroid);
+	std::vector<Node> node_list;
+	bool term_flag = true; // terminate flag
+	Node root;
+	root.parent = NULL;
+	for (int i = 0; i < F.rows(); ++i) {
+		root.bbox = root.bbox.merged(triangle_list[i].bbox); // construct root box
+	}
+	root.triangle = -1;
+	node_list.push_back(root);
+	while (!node_list.empty) {
+		int count = 0;
+		Node curr = node_list.back();
+		node_list.pop_back();
+		Node *left = (Node*) malloc(sizeof(Node));
+		Node *right = (Node*) malloc(sizeof(Node));
+		switch(count % 3) {
+			// split in three directions.
+			case 0:
+				int l_count = 0;
+				int r_count = 0;
+				double mid = curr.bbox.corner.BottomLeft(0);
+				for (Node node: triangle_list) {
+					if (node.bbox.corner.BottomLeft(0) < mid ) {
+						left->bbox.merged(node.bbox);
+						++ l_count;
+					} else {
+						right->bbox.merged(node.bbox);
+						++ r_count;
+					}
+				}
+				break;
+
+			case 1:
+				int l_count = 0;
+				int r_count = 0;
+				double mid = curr.bbox.corner.BottomLeft(1);
+				for (Node node: triangle_list) {
+					if (node.bbox.corner.BottomLeft(1) < mid ) {
+						left->bbox.merged(node.bbox);
+						++ l_count;
+					} else {
+						right->bbox.merged(node.bbox);
+						++ r_count;
+					}
+				}
+
+				break;
+			case 2:
+				break;
+		}
+		++ count;
+	}
+	// adopt bottom up approach
 	// TODO (Assignment 3)
 
 	// Method (1): Top-down approach.
@@ -194,12 +264,39 @@ AABBTree::AABBTree(const MatrixXd &V, const MatrixXi &F) {
 
 bool Sphere::intersect(const Ray &ray, Intersection &hit) {
 	// TODO (Assignment 2)
+	double t = (this->position - ray.origin).dot(ray.direction.normalized());
+	Vector3d intersection = ray.origin + t * ray.direction.normalized();
+	double r = (intersection - this->position).norm();
+	if ( r < this->radius) {
+		double d = std::sqrt( this->radius * this->radius
+							- (intersection - this->position).squaredNorm());
+		hit.position = intersection - d * ray.direction.normalized(); 
+		hit.normal = (hit.position - this->position).normalized();
+		hit.ray_param = t - d ; //  Not sure what it is, assume it's the scalar.
+		return true;
+	} else {
+		return false;
+	}
 	return false;
 }
 
 bool Parallelogram::intersect(const Ray &ray, Intersection &hit) {
 	// TODO (Assignment 2)
-	return false;
+	Vector3d plain_norm = u.cross(v);
+	double t = (this->origin - ray.origin).dot(plain_norm)
+		     / (ray.direction(0) + ray.direction(1) + ray.direction(2));
+	Vector3d intersection = ray.origin + ray.direction * t;
+	MatrixXd p_gram;
+	p_gram << u, v;
+	Vector2d portion = p_gram.colPivHouseholderQr().solve(intersection - this->origin);
+	if (0 < portion(0) && portion(0) < 1 && 0 < portion(1) && portion(1) < 1) {
+		hit.normal = u.cross(v).normalized();
+		hit.position = intersection;
+		hit.ray_param = t;
+		return true;
+	} else {
+		return false;
+	}
 }
 
 // -----------------------------------------------------------------------------
@@ -209,7 +306,22 @@ bool intersect_triangle(const Ray &ray, const Vector3d &a, const Vector3d &b, co
 	//
 	// Compute whether the ray intersects the given triangle.
 	// If you have done the parallelogram case, this should be very similar to it.
-	return false;
+	Vector3d u = b - a;
+	Vector3d v = c - a;
+	Vector3d plain_norm = u.cross(v);
+	double t = (a - ray.origin).dot(plain_norm) / ray.direction.squaredNorm();
+	Vector3d intersection = ray.origin + ray.direction * t;
+	MatrixXd p_gram;
+	p_gram << u, v;
+	Vector2d portion = p_gram.colPivHouseholderQr().solve(intersection - a);
+	if (0 < portion(0) &&  0 < portion(1) && portion(0) + portion(1) < 1) {
+		hit.normal = u.cross(v).normalized();
+		hit.position = intersection;
+		hit.ray_param = t;
+		return true;
+	} else {
+		return false;
+	}
 }
 
 bool intersect_box(const Ray &ray, const AlignedBox3d &box) {
@@ -218,6 +330,18 @@ bool intersect_box(const Ray &ray, const AlignedBox3d &box) {
 	// Compute whether the ray intersects the given box.
 	// There is no need to set the resulting normal and ray parameter, since
 	// we are not testing with the real surface here anyway.
+	double scalar_front = (box.corner.BottomLeft(1) - ray.origin(1)) / ray.direction(1); 
+	double scalar_back = (box.corner.TopLeft(1) - ray.origin(1)) / ray.direction(1); 
+	Vector3d intersect_1 = ray.origin + scalar_front * ray.direction;
+	Vector3d intersect_2 = ray.origin + scalar_back * ray.direction;
+	if ((box.corner.TopLeft(0) <= intersect_1(0) && box.corner.BottomRightCeil(0) >= intersect_1(0)
+	&& box.corner.TopLeft(1) <= intersect_1(1) && box.corner.BottomRightCeil(1) >= intersect_1(1)
+	&& box.corner.TopLeft(2) <= intersect_1(2) && box.corner.BottomRightCeil(2) >= intersect_1(2)) 
+	|| (box.corner.TopLeft(0) <= intersect_2(0) && box.corner.BottomRightCeil(0) >= intersect_2(0)
+	&& box.corner.TopLeft(1) <= intersect_2(1) && box.corner.BottomRightCeil(1) >= intersect_2(1)
+	&& box.corner.TopLeft(2) <= intersect_2(2) && box.corner.BottomRightCeil(2) >= intersect_2(2))) {
+		return true;
+	}
 	return false;
 }
 
@@ -225,7 +349,10 @@ bool Mesh::intersect(const Ray &ray, Intersection &closest_hit) {
 	// TODO (Assignment 3)
 
 	// Method (1): Traverse every triangle and return the closest hit.
+	// Method (1):
+	for (Mesh::facets) {
 
+	}
 	// Method (2): Traverse the BVH tree and test the intersection with a
 	// triangles at the leaf nodes that intersects the input ray.
 
@@ -257,13 +384,13 @@ Vector3d ray_color(const Scene &scene, const Ray &ray, const Object &obj, const 
 		Vector3d Li = (light.position - hit.position).normalized();
 		Vector3d N = hit.normal;
 
-		// TODO (Assignment 2, shadow rays)
-
-		// Diffuse contribution
 		Vector3d diffuse = mat.diffuse_color * std::max(Li.dot(N), 0.0);
 
 		// TODO (Assignment 2, specular contribution)
 		Vector3d specular(0, 0, 0);
+		Vector3d hit_pos = ( Li - ray.direction.normalized()).normalized();
+		double phong_exp =  hit_pos.dot(hit.normal); 
+		specular = mat.specular_color * std::max(pow(phong_exp, mat.specular_exponent), 0.0);
 
 		// Attenuate lights according to the squared distance to the lights
 		Vector3d D = light.position - hit.position;

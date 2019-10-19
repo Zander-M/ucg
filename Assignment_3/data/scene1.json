@@ -1,0 +1,51 @@
+{
+	"Scene":
+	{
+		"Background": [0.3, 0.3, 0.9],
+		"Ambient": [0.2, 0.2, 0.2]
+	},
+
+	"Camera":
+	{
+		"IsPerspective": true,
+		"Position": [0, 0, 5],
+		"FieldOfView": 0.7854,
+		"FocalLength": 5.0,
+		"LensRadius": 0.08
+	},
+	"Materials": [
+		{
+			"Ambient": [0, 0.5, 0],
+			"Diffuse": [0.5, 0.5, 0.5],
+			"Specular": [0.2, 0.2, 0.2],
+			"Mirror": [0.7, 0.7, 0.7],
+			"Refraction": [0.0, 0.0, 0.0],
+			"RefractionIndex": 1.0,
+			"Shininess": 256.0
+		}
+	],
+	"Lights": [
+		{
+			"Position": [-2, 2, 2],
+			"Color": [7, 7, 7]
+		},
+		{
+			"Position": [2, 2, 2],
+			"Color": [7, 7, 7]
+		}
+	],
+	"Objects": [
+		{
+			"Type": "Sphere",
+			"Material": 0,
+			"Position": [0, 0, -1],
+			"Radius": 1
+		},
+		{
+			"Type": "Sphere",
+			"Material": 0,
+			"Position": [0, 0, -2],
+			"Radius": 0.5
+		}
+	]
+}

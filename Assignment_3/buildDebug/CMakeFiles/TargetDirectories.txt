@@ -1,0 +1,3 @@
+/home/zdrm/Desktop/Fall19/CG/ucg/Assignment_3/buildDebug/CMakeFiles/rebuild_cache.dir
+/home/zdrm/Desktop/Fall19/CG/ucg/Assignment_3/buildDebug/CMakeFiles/assignment3.dir
+/home/zdrm/Desktop/Fall19/CG/ucg/Assignment_3/buildDebug/CMakeFiles/edit_cache.dir
