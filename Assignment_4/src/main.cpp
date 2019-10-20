@@ -178,7 +178,7 @@ struct centroid {
     double x;
     double y;
     double z;
-    long idx; // index
+    int idx; // index
 } centroid;
 
 // sorting criteria.
