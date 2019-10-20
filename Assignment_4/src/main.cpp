@@ -203,18 +203,18 @@ AABBTree::AABBTree(const MatrixXd &V, const MatrixXi &F) {
 	// create vector, associate centroid with index
 	long curr = 0; // for parent index
 	std::queue<std::vector<struct centroid*>*> q_centroid;
-	std::queue<long> q_parent;
+	std::queue<int> q_parent;
 	q_parent.push(-1);
 	// create vector, associate centroid with index
-	std::vector<struct centroid*> v_centroids;
-	q_centroid.push(&v_centroids);
+	std::vector<struct centroid*>* v_centroids = new std::vector<struct centroid*>;
+	q_centroid.push(v_centroids);
 	for (int i = 0; i < centroids.rows(); ++i) {
 		struct centroid* s_centroid = new struct centroid;
 		s_centroid->x = centroids(i, 0);
 		s_centroid->y = centroids(i, 1);
 		s_centroid->z = centroids(i, 2);
 		s_centroid->idx = i;
-		v_centroids.push_back(s_centroid);
+		v_centroids->push_back(s_centroid);
 	}
 	while (q_centroid.size() > 0) {
 		std::vector<struct centroid*>* list = q_centroid.front();
@@ -222,18 +222,15 @@ AABBTree::AABBTree(const MatrixXd &V, const MatrixXi &F) {
 		q_centroid.pop();
 		q_parent.pop();
 		if (list->size() == 1) {
-			struct centroid* triangle_1 = list->front();
+			struct centroid* triangle = list->front();
 			list->pop_back();
-			struct centroid* triangle_2 = list->front();
 			Node *node = new Node;
 			node->left = -1;
 			node->right = -1;
-			node->triangle = triangle_1->idx;
+			node->triangle = triangle->idx;
 			node->parent = parent;
-			node->bbox = bbox_triangle(V.row(F(node->triangle, 0)), V.row(F(node->triangle, 1)), V.row(F(node->triangle, 2)));
 			nodes.push_back(*node);
 			++curr; // move index forward
-			delete list;
 		} else {
 			switch (curr % 3) { // change sorting direction
 				case 0:
@@ -246,45 +243,47 @@ AABBTree::AABBTree(const MatrixXd &V, const MatrixXi &F) {
 					std::sort(list->begin(), list->end(), sort_z);
 					break;
 			}
-			long mid = list->size() / 2;
-			std::vector<struct centroid*>* p_left = new std::vector<struct centroid*>;
-			std::vector<struct centroid*>* p_right = new std::vector<struct centroid*>;
-			std::vector<struct centroid*> left(list->begin(), list->begin() + mid);
-			std::vector<struct centroid*> right(list->begin() + mid, list->end());
-			*p_left = left;
-			*p_right = right;
+			int mid = list->size() / 2;
+			std::vector<struct centroid*>* left = new std::vector<struct centroid*>;
+			std::vector<struct centroid*>* right = new std::vector<struct centroid*>;
+			for (int i = 0; i< mid; ++i) {
+				left->push_back((*list)[i]);
+			}
+			for (int i = mid; i < list->size(); ++i) {
+				right->push_back((*list)[i]);
+			}
 			Node* node = new Node;
 			node->parent = parent;
 			node->triangle = -1;
-			q_centroid.push(&left);
-			q_centroid.push(&right);
+			node->left = -1;
+			node->right = -1;
+			q_centroid.push(left);
+			q_centroid.push(right);
 			q_parent.push(curr);
 			q_parent.push(curr);
 			nodes.push_back(*node);
 			++curr; // move index forward
-			delete list;
 		}
 	}
-	printf("tree constructed\n");
 	// build left & right
-	for ( int i = nodes.size() - 1; i > -1; --i){
-			if (nodes[i].triangle != -1) { // Build bbox
-				nodes[i].bbox = bbox_triangle(V.col(F(nodes[i].triangle, 0)),
-					V.col(F(nodes[i].triangle, 1)), V.col(F(nodes[i].triangle, 2)));
-			} else {
-				nodes[i].bbox = nodes[nodes[i].left].bbox.merged(nodes[nodes[i].left].bbox);
-			}
-			int parent = nodes[i].parent;
-			if (nodes[parent].left == -1) {
-				nodes[parent].left = i;
-			} else {
-				nodes[parent].right = i;
-			}
+	for ( int i = nodes.size() - 1; i > 0; --i) {
+		if (nodes.at(i).triangle != -1) { // Build bbox
+			nodes.at(i).bbox = bbox_triangle(V.row(F(nodes.at(i).triangle, 0)),
+				V.row(F(nodes.at(i).triangle, 1)), V.row(F(nodes.at(i).triangle, 2)));
+		} else {
+			nodes.at(i).bbox = nodes.at(nodes.at(i).left).bbox.merged(nodes.at(nodes.at(i).left).bbox);
+		}
+		int parent = nodes.at(i).parent;
+		if (nodes.at(parent).left == -1) {
+			nodes.at(parent).left = i;
+		} else {
+			nodes.at(parent).right = i;
+		}
 	}
 	// for test
-	for (Node node: nodes) {
-		printf("%d, %d, %d\n ", node.parent, node.left, node.right);
-	}
+	// for (std::vector<Node>::iterator it = nodes.begin(); it != nodes.end(); ++it) {
+		// printf("%d, %d, %d\n ", it->parent, it->left, it->right);
+	// }
 	// delete centroids
 }
 
