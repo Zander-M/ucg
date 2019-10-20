@@ -6,7 +6,7 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include <stack>
+#include <queue>
 
 // Eigen for matrix operations
 #include <Eigen/Dense>
@@ -169,9 +169,25 @@ AlignedBox3d bbox_triangle(const Vector3d &a, const Vector3d &b, const Vector3d 
 	return box;
 }
 
-bool sort_centroid(const Vector3d left, const Vector3d right) {
-	// Sort centroids
-	return left(0) < right(0);
+// centroid struct for sorting
+struct centroid {
+	double x; 
+	double y; 
+	double z; 
+	long idx; // index
+} centroid;
+
+// sorting criteria.
+bool sort_x(struct centroid* left, struct centroid* right) {
+			return left->x < right->x;
+}
+
+bool sort_y(struct centroid* left, struct centroid* right) {
+			return left->y < right->y;
+}
+
+bool sort_z(struct centroid* left, struct centroid* right) {
+			return left->z < right->z;
 }
 
 AABBTree::AABBTree(const MatrixXd &V, const MatrixXi &F) {
@@ -184,80 +200,92 @@ AABBTree::AABBTree(const MatrixXd &V, const MatrixXi &F) {
 		}
 		centroids.row(i) /= F.cols();
 	}
-
-	std::vector<Node> triangle_list;
-	for (int i = 0; i < F.rows(); ++i) {
-		Node face_node;	
-		face_node.left = -1;
-		face_node.right = -1;
-		face_node.triangle = i;
-		Matrix3d vertices;
-		face_node.bbox = bbox_triangle(V.row(F(i, 0)), V.row(F(i, 1)), V.row(F(i, 2)));
-		triangle_list.push_back(face_node);
+	// create vector, associate centroid with index
+	long curr = 0; // for parent index
+	std::queue<std::vector<struct centroid*>*> q_centroid;
+	std::queue<long> q_parent;
+	q_parent.push(-1);
+	// create vector, associate centroid with index
+	std::vector<struct centroid*> v_centroids;
+	q_centroid.push(&v_centroids);
+	for (int i = 0; i < centroids.rows(); ++i) {
+		struct centroid* s_centroid = new struct centroid;
+		s_centroid->x = centroids(i, 0);
+		s_centroid->y = centroids(i, 1);
+		s_centroid->z = centroids(i, 2);
+		s_centroid->idx = i;
+		v_centroids.push_back(s_centroid);
 	}
-
-	std::sort(triangle_list.begin(), triangle_list.end(), &sort_centroid);
-	std::vector<Node> node_list;
-	bool term_flag = true; // terminate flag
-	Node root;
-	root.parent = NULL;
-	for (int i = 0; i < F.rows(); ++i) {
-		root.bbox = root.bbox.merged(triangle_list[i].bbox); // construct root box
-	}
-	root.triangle = -1;
-	node_list.push_back(root);
-	while (!node_list.empty) {
-		int count = 0;
-		Node curr = node_list.back();
-		node_list.pop_back();
-		Node *left = (Node*) malloc(sizeof(Node));
-		Node *right = (Node*) malloc(sizeof(Node));
-		switch(count % 3) {
-			// split in three directions.
-			case 0:
-				int l_count = 0;
-				int r_count = 0;
-				double mid = curr.bbox.corner.BottomLeft(0);
-				for (Node node: triangle_list) {
-					if (node.bbox.corner.BottomLeft(0) < mid ) {
-						left->bbox.merged(node.bbox);
-						++ l_count;
-					} else {
-						right->bbox.merged(node.bbox);
-						++ r_count;
-					}
-				}
-				break;
-
-			case 1:
-				int l_count = 0;
-				int r_count = 0;
-				double mid = curr.bbox.corner.BottomLeft(1);
-				for (Node node: triangle_list) {
-					if (node.bbox.corner.BottomLeft(1) < mid ) {
-						left->bbox.merged(node.bbox);
-						++ l_count;
-					} else {
-						right->bbox.merged(node.bbox);
-						++ r_count;
-					}
-				}
-
-				break;
-			case 2:
-				break;
+	while (q_centroid.size() > 0) {
+		std::vector<struct centroid*>* list = q_centroid.front();
+		int parent = q_parent.front();
+		q_centroid.pop();
+		q_parent.pop();
+		if (list->size() == 1) {
+			struct centroid* triangle_1 = list->front();
+			list->pop_back();
+			struct centroid* triangle_2 = list->front();
+			Node *node = new Node;
+			node->left = -1;
+			node->right = -1;
+			node->triangle = triangle_1->idx;
+			node->parent = parent;
+			node->bbox = bbox_triangle(V.row(F(node->triangle, 0)), V.row(F(node->triangle, 1)), V.row(F(node->triangle, 2)));
+			nodes.push_back(*node);
+			++curr; // move index forward
+			delete list;
+		} else {
+			switch (curr % 3) { // change sorting direction
+				case 0:
+					std::sort(list->begin(), list->end(), sort_x);
+					break;
+				case 1:
+					std::sort(list->begin(), list->end(), sort_y);
+					break;
+				case 2:
+					std::sort(list->begin(), list->end(), sort_z);
+					break;
+			}
+			long mid = list->size() / 2;
+			std::vector<struct centroid*>* p_left = new std::vector<struct centroid*>;
+			std::vector<struct centroid*>* p_right = new std::vector<struct centroid*>;
+			std::vector<struct centroid*> left(list->begin(), list->begin() + mid);
+			std::vector<struct centroid*> right(list->begin() + mid, list->end());
+			*p_left = left;
+			*p_right = right;
+			Node* node = new Node;
+			node->parent = parent;
+			node->triangle = -1;
+			q_centroid.push(&left);
+			q_centroid.push(&right);
+			q_parent.push(curr);
+			q_parent.push(curr);
+			nodes.push_back(*node);
+			++curr; // move index forward
+			delete list;
 		}
-		++ count;
 	}
-	// adopt bottom up approach
-	// TODO (Assignment 3)
-
-	// Method (1): Top-down approach.
-	// Split each set of primitives into 2 sets of roughly equal size,
-	// based on sorting the centroids along one direction or another.
-
-	// Method (2): Bottom-up approach.
-	// Merge nodes 2 by 2, starting from the leaves of the forest, until only 1 tree is left.
+	printf("tree constructed\n");
+	// build left & right
+	for ( int i = nodes.size() - 1; i > -1; --i){
+			if (nodes[i].triangle != -1) { // Build bbox
+				nodes[i].bbox = bbox_triangle(V.col(F(nodes[i].triangle, 0)),
+					V.col(F(nodes[i].triangle, 1)), V.col(F(nodes[i].triangle, 2)));
+			} else {
+				nodes[i].bbox = nodes[nodes[i].left].bbox.merged(nodes[nodes[i].left].bbox);
+			}
+			int parent = nodes[i].parent;
+			if (nodes[parent].left == -1) {
+				nodes[parent].left = i;
+			} else {
+				nodes[parent].right = i;
+			}
+	}
+	// for test
+	for (Node node: nodes) {
+		printf("%d, %d, %d\n ", node.parent, node.left, node.right);
+	}
+	// delete centroids
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -284,7 +312,7 @@ bool Parallelogram::intersect(const Ray &ray, Intersection &hit) {
 	// TODO (Assignment 2)
 	Vector3d plain_norm = u.cross(v);
 	double t = (this->origin - ray.origin).dot(plain_norm)
-		     / (ray.direction(0) + ray.direction(1) + ray.direction(2));
+		     / (ray.direction.dot(plain_norm));
 	Vector3d intersection = ray.origin + ray.direction * t;
 	MatrixXd p_gram;
 	p_gram << u, v;
@@ -308,12 +336,13 @@ bool intersect_triangle(const Ray &ray, const Vector3d &a, const Vector3d &b, co
 	// If you have done the parallelogram case, this should be very similar to it.
 	Vector3d u = b - a;
 	Vector3d v = c - a;
-	Vector3d plain_norm = u.cross(v);
-	double t = (a - ray.origin).dot(plain_norm) / ray.direction.squaredNorm();
+	Vector3d plain_norm = u.cross(v).normalized();
+	double t = (a - ray.origin).dot(plain_norm) / ray.direction.dot(plain_norm);
 	Vector3d intersection = ray.origin + ray.direction * t;
-	MatrixXd p_gram;
-	p_gram << u, v;
-	Vector2d portion = p_gram.colPivHouseholderQr().solve(intersection - a);
+	MatrixXd triangle(3, 2);
+	triangle.col(0) = u; 
+	triangle.col(1) = v; 
+	Vector2d portion = triangle.colPivHouseholderQr().solve(intersection - a);
 	if (0 < portion(0) &&  0 < portion(1) && portion(0) + portion(1) < 1) {
 		hit.normal = u.cross(v).normalized();
 		hit.position = intersection;
@@ -330,16 +359,16 @@ bool intersect_box(const Ray &ray, const AlignedBox3d &box) {
 	// Compute whether the ray intersects the given box.
 	// There is no need to set the resulting normal and ray parameter, since
 	// we are not testing with the real surface here anyway.
-	double scalar_front = (box.corner.BottomLeft(1) - ray.origin(1)) / ray.direction(1); 
-	double scalar_back = (box.corner.TopLeft(1) - ray.origin(1)) / ray.direction(1); 
+	double scalar_front = (box.corner(box.BottomLeft)(1) - ray.origin(1)) / ray.direction(1); 
+	double scalar_back = (box.corner(box.TopLeft)(1) - ray.origin(1)) / ray.direction(1); 
 	Vector3d intersect_1 = ray.origin + scalar_front * ray.direction;
 	Vector3d intersect_2 = ray.origin + scalar_back * ray.direction;
-	if ((box.corner.TopLeft(0) <= intersect_1(0) && box.corner.BottomRightCeil(0) >= intersect_1(0)
-	&& box.corner.TopLeft(1) <= intersect_1(1) && box.corner.BottomRightCeil(1) >= intersect_1(1)
-	&& box.corner.TopLeft(2) <= intersect_1(2) && box.corner.BottomRightCeil(2) >= intersect_1(2)) 
-	|| (box.corner.TopLeft(0) <= intersect_2(0) && box.corner.BottomRightCeil(0) >= intersect_2(0)
-	&& box.corner.TopLeft(1) <= intersect_2(1) && box.corner.BottomRightCeil(1) >= intersect_2(1)
-	&& box.corner.TopLeft(2) <= intersect_2(2) && box.corner.BottomRightCeil(2) >= intersect_2(2))) {
+	if ((box.corner(AlignedBox3d::TopLeft)(0) <= intersect_1(0) && box.corner(box.BottomRightCeil)(0) >= intersect_1(0)
+	&& box.corner(box.TopLeft)(1) <= intersect_1(1) && box.corner(box.BottomRightCeil)(1) >= intersect_1(1)
+	&& box.corner(box.TopLeft)(2) <= intersect_1(2) && box.corner(box.BottomRightCeil)(2) >= intersect_1(2)) 
+	|| (box.corner(box.TopLeft)(0) <= intersect_2(0) && box.corner(box.BottomRightCeil)(0) >= intersect_2(0)
+	&& box.corner(box.TopLeft)(1) <= intersect_2(1) && box.corner(box.BottomRightCeil)(1) >= intersect_2(1)
+	&& box.corner(box.TopLeft)(2) <= intersect_2(2) && box.corner(box.BottomRightCeil)(2) >= intersect_2(2))) {
 		return true;
 	}
 	return false;
@@ -350,13 +379,27 @@ bool Mesh::intersect(const Ray &ray, Intersection &closest_hit) {
 
 	// Method (1): Traverse every triangle and return the closest hit.
 	// Method (1):
-	for (Mesh::facets) {
-
+	Intersection hit;
+	double min_param = 1000;
+	bool intersect = false;
+	for (int i = 0; i < facets.rows(); ++i){
+		int a = facets(i, 0);
+		int b = facets(i, 1);
+		int c = facets(i, 2);
+		Vector3d v_a(vertices(a, 0), vertices(a, 1), vertices(a, 2));
+		Vector3d v_b(vertices(b, 0), vertices(b, 1), vertices(b, 2));
+		Vector3d v_c(vertices(c, 0), vertices(c, 1), vertices(c, 2));
+		if (intersect_triangle(ray, v_a, v_b, v_c, hit)) {
+			if (hit.ray_param < min_param) {
+				closest_hit = hit;
+				min_param = hit.ray_param;
+				intersect = true;
+			}
+		}
 	}
 	// Method (2): Traverse the BVH tree and test the intersection with a
 	// triangles at the leaf nodes that intersects the input ray.
-
-	return false;
+	return intersect;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -384,21 +427,38 @@ Vector3d ray_color(const Scene &scene, const Ray &ray, const Object &obj, const 
 		Vector3d Li = (light.position - hit.position).normalized();
 		Vector3d N = hit.normal;
 
+		Ray shadow;
+		shadow.origin = hit.position;
+		shadow.direction = Li;
+
+		if (!is_light_visible(scene, shadow, light)) {
+			continue; // skip if in shadow
+		}
+			// Diffuse contribution
 		Vector3d diffuse = mat.diffuse_color * std::max(Li.dot(N), 0.0);
 
 		// TODO (Assignment 2, specular contribution)
 		Vector3d specular(0, 0, 0);
 		Vector3d hit_pos = ( Li - ray.direction.normalized()).normalized();
-		double phong_exp =  hit_pos.dot(hit.normal); 
+		double phong_exp = hit_pos.dot(hit.normal); 
 		specular = mat.specular_color * std::max(pow(phong_exp, mat.specular_exponent), 0.0);
 
 		// Attenuate lights according to the squared distance to the lights
 		Vector3d D = light.position - hit.position;
 		lights_color += (diffuse + specular).cwiseProduct(light.intensity) /  D.squaredNorm();
 	}
-
 	// TODO (Assignment 2, reflected ray)
 	Vector3d reflection_color(0, 0, 0);
+	if (max_bounce > 0) {
+		Ray reflection;
+		reflection.origin = hit.position;
+		reflection.direction = ray.direction.normalized() - 2 * (hit.normal.dot(ray.direction.normalized())) * hit.normal; // compute reflect ray direction
+		Intersection r_hit;
+		Object *n_obj = find_nearest_object(scene, reflection, r_hit);
+		if (n_obj) { // make sure the intersection point is in the positive direction of reflection
+			reflection_color = mat.reflection_color.cwiseProduct(ray_color(scene, reflection, *n_obj, r_hit, max_bounce - 1));
+		} 
+	}
 
 	// TODO (Assignment 2, refracted ray)
 	Vector3d refraction_color(0, 0, 0);
@@ -413,8 +473,20 @@ Vector3d ray_color(const Scene &scene, const Ray &ray, const Object &obj, const 
 
 Object * find_nearest_object(const Scene &scene, const Ray &ray, Intersection &closest_hit) {
 	int closest_index = -1;
-	// TODO (Assignment 2, find nearest hit)
-
+	Intersection hit;
+	const double eps = 1e-10; // small epsilon for numerical precision
+	double closest_param = 100; // a large number that is greater than t
+	long int count = 0;
+	for (const ObjectPtr &obj: scene.objects) {
+		if (obj->intersect(ray, hit)) {
+			if (hit.ray_param < closest_param && hit.ray_param > eps) {
+				closest_index = count;
+				closest_hit = hit;
+				closest_param = hit.ray_param; // the distance to ray origin
+			}
+		}
+		count++;
+	}
 	if (closest_index < 0) {
 		// Return a NULL pointer
 		return nullptr;
@@ -426,6 +498,14 @@ Object * find_nearest_object(const Scene &scene, const Ray &ray, Intersection &c
 
 bool is_light_visible(const Scene &scene, const Ray &ray, const Light &light) {
 	// TODO (Assignment 2, shadow ray)
+	const double eps = 1e-10; // small epsilon for numerical precision
+	Intersection hit_obj;
+	double light_param = (light.position(0) - ray.origin(0)) / ray.direction(0);
+	for (const ObjectPtr &h_obj : scene.objects) {
+		if (h_obj->intersect(ray, hit_obj) && hit_obj.ray_param > eps && hit_obj.ray_param < light_param) {
+			return false;
+		}
+	}
 	return true;
 }
 
@@ -456,12 +536,13 @@ void render_scene(const Scene &scene) {
 	// The sensor grid is at a distance 'focal_length' from the camera center,
 	// and covers an viewing angle given by 'field_of_view'.
 	double aspect_ratio = double(w) / double(h);
-	double scale_y = 1.0; // TODO: Stretch the pixel grid by the proper amount here
-	double scale_x = 1.0; //
+	double scale_y = scene.camera.focal_length * tan(scene.camera.field_of_view/2) * 2;
+	double scale_x = scale_y * aspect_ratio;//
 
 	// The pixel grid through which we shoot rays is at a distance 'focal_length'
 	// from the sensor, and is scaled from the canonical [-1,1] in order
 	// to produce the target field of view.
+	int iter = 1;
 	Vector3d grid_origin(-scale_x, scale_y, -scene.camera.focal_length);
 	Vector3d x_displacement(2.0/w*scale_x, 0, 0);
 	Vector3d y_displacement(0, -2.0/h*scale_y, 0);
@@ -470,26 +551,33 @@ void render_scene(const Scene &scene) {
 		std::cout << std::fixed << std::setprecision(2);
 		std::cout << "Ray tracing: " << (100.0 * i) / w << "%\r" << std::flush;
 		for (unsigned j = 0; j < h; ++j) {
+			for (unsigned k = 0; k < iter; ++k) {
+				Vector3d shift = grid_origin + (i+0.5)*x_displacement + (j+0.5)*y_displacement;
+
+				// Prepare the ray
+				Ray ray;
+				double origin_x_offset = (2 *(float)rand() / RAND_MAX - 1);
+				double origin_y_offset = (2 *(float)rand() / RAND_MAX - 1) * sqrt( 1 - origin_x_offset * origin_x_offset);
+				Vector3d offset(origin_x_offset, origin_y_offset,0);
 			// TODO (Assignment 2, depth of field)
-			Vector3d shift = grid_origin + (i+0.5)*x_displacement + (j+0.5)*y_displacement;
+				// Prepare the ray
 
-			// Prepare the ray
-			Ray ray;
-
-			if (scene.camera.is_perspective) {
-				// Perspective camera
-				// TODO (Assignment 2, perspective camera)
-			} else {
-				// Orthographic camera
-				ray.origin = scene.camera.position + Vector3d(shift[0], shift[1], 0);
-				ray.direction = Vector3d(0, 0, -1);
+				if (scene.camera.is_perspective) {
+					// Perspective camera
+					// TODO (Assignment 2, perspective camera)
+					ray.origin = scene.camera.position + offset * scene.camera.lens_radius;
+					ray.direction = shift - ray.origin;
+				} else {
+					// Orthographic camera
+					ray.origin = scene.camera.position + Vector3d(shift[0], shift[1], 0);
+					ray.direction = Vector3d(0, 0, -1);
+				}
+				int max_bounce = 5;
+				Vector3d C = shoot_ray(scene, ray, max_bounce);
+				R(i, j) += C(0);
+				G(i, j) += C(1);
+				B(i, j) += C(2);
 			}
-
-			int max_bounce = 5;
-			Vector3d C = shoot_ray(scene, ray, max_bounce);
-			R(i, j) = C(0);
-			G(i, j) = C(1);
-			B(i, j) = C(2);
 			A(i, j) = 1;
 		}
 	}
@@ -498,7 +586,7 @@ void render_scene(const Scene &scene) {
 
 	// Save to png
 	const std::string filename("raytrace.png");
-	write_matrix_to_png(R, G, B, A, filename);
+	write_matrix_to_png(R/iter, G/iter, B/iter, A, filename);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
