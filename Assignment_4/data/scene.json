@@ -1,7 +1,7 @@
 {
 	"Scene":
 	{
-		"Background": [0, 0, 0],
+		"Background": [0.3, 0.3, 0.9],
 		"Ambient": [0.2, 0.2, 0.2]
 	},
 
@@ -15,7 +15,7 @@
 	},
 	"Materials": [
 		{
-			"Ambient": [0.5, 0.5, 0.5],
+			"Ambient": [0.0, 0.5, 0.0],
 			"Diffuse": [0.5, 0.5, 0.5],
 			"Specular": [0.2, 0.2, 0.2],
 			"Mirror": [0.7, 0.7, 0.7],
@@ -58,7 +58,7 @@
 		{
 			"Type": "Mesh",
 			"Material": 0,
-			"Path": "cube.off"
+			"Path": "dragon.off"
 		},
 		{
 			"Type": "Sphere",
