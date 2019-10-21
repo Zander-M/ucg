@@ -236,6 +236,7 @@ AABBTree::AABBTree(const MatrixXd &V, const MatrixXi &F) {
             node->parent = parent;
             nodes.push_back(*node);
             ++curr; // move index forward
+            std::vector<struct centroid*>().swap(*list);
         } else {
             switch (curr % 3) { // change sorting direction
             case 0:
@@ -270,6 +271,7 @@ AABBTree::AABBTree(const MatrixXd &V, const MatrixXi &F) {
             q_parent.push(curr);
             nodes.push_back(*node);
             ++curr; // move index forward
+            std::vector<struct centroid*>().swap(*list);
         }
     }
     // build left & right
@@ -647,7 +649,7 @@ void render_scene(const Scene &scene) {
     // The pixel grid through which we shoot rays is at a distance
     // 'focal_length' from the sensor, and is scaled from the canonical
     // [-1,1] in order to produce the target field of view.
-    int iter = 1;
+    int iter = 150;
     Vector3d grid_origin(-scale_x, scale_y, -scene.camera.focal_length);
     Vector3d x_displacement(2.0 / w * scale_x, 0, 0);
     Vector3d y_displacement(0, -2.0 / h * scale_y, 0);
