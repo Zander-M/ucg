@@ -108,6 +108,8 @@ struct AABBTree {
     AABBTree() = default; // Default empty constructor
     AABBTree(const MatrixXd &V,
              const MatrixXi &F); // Build a BVH from an existing mesh
+    void AABBTree_1(const MatrixXd &V,
+             const MatrixXi &F); // Build a BVH from an existing mesh
 };
 
 struct Mesh : public Object {
@@ -181,7 +183,16 @@ struct centroid {
     int idx; // index
 } centroid;
 
+struct comparison {
+    double value;
+    int idx; // index of triangle
+} comparison;
+
 // sorting criteria.
+bool sort_val(struct comparison left, struct comparison right) {
+    return left.value < right.value;
+}
+
 bool sort_x(struct centroid *left, struct centroid *right) {
     return left->x < right->x;
 }
@@ -192,6 +203,113 @@ bool sort_y(struct centroid *left, struct centroid *right) {
 
 bool sort_z(struct centroid *left, struct centroid *right) {
     return left->z < right->z;
+}
+
+void AABBTree::AABBTree_1(const MatrixXd &V, const MatrixXi &F) {
+    // Compute the centroids of all the triangles in the input mesh
+    MatrixXd centroids(F.rows(), V.cols());
+    centroids.setZero();
+    for (int i = 0; i < F.rows(); ++i) {
+        for (int k = 0; k < F.cols(); ++k) {
+            centroids.row(i) += V.row(F(i, k));
+        }
+        centroids.row(i) /= F.cols();
+    }
+    // create vector, associate centroid with index
+    int curr = 0; // for parent index
+    std::queue<std::vector<int> *> q_centroid;
+    std::queue<int> q_parent;
+    q_parent.push(-1);
+    // create vector, associate centroid with index
+    std::vector<int> *v_centroids =
+        new std::vector<int>;
+    q_centroid.push(v_centroids);
+    for (int i = 0; i < centroids.rows(); ++i) {
+        v_centroids->push_back(i);
+    }
+    while (q_centroid.size() > 0) {
+        std::vector<int> *list = q_centroid.front();
+        std::vector<struct comparison> temp_comp;
+        int parent = q_parent.front();
+        q_centroid.pop();
+        q_parent.pop();
+
+        if (list->size() == 1) {
+            list->pop_back();
+            Node *node = new Node;
+            node->left = -1;
+            node->right = -1;
+            node->triangle = list->front();
+            node->parent = parent;
+            nodes.push_back(*node);
+            ++curr; // move index forward
+            std::vector<int>().swap(*list);
+        } else {
+            int dir = curr % 3;
+            struct comparison temp_comp_list[list->size()];
+            int i = 0;
+            for (std::vector<int>::iterator it = list->begin(); it != list->end(); ++it) {
+                temp_comp_list[i].value = centroids(*it, dir);
+                temp_comp_list[i].idx = *it;
+                temp_comp.push_back(temp_comp_list[i]);
+                ++i;
+            }
+            std::sort(temp_comp.begin(), temp_comp.end(), sort_val);
+            int mid = list->size() / 2;
+            std::vector<int> *left =
+                new std::vector<int>;
+            std::vector<int> *right =
+                new std::vector<int>;
+            for (int i = 0; i < mid; ++i) {
+                left->push_back((temp_comp[i].idx));
+            }
+            for (int i = mid; i < list->size(); ++i) {
+                right->push_back((temp_comp[i].idx));
+            }
+            
+            Node *node = new Node;
+            node->parent = parent;
+            node->triangle = -1;
+            node->left = -1;
+            node->right = -1;
+            q_centroid.push(left);
+            q_centroid.push(right);
+            q_parent.push(curr);
+            q_parent.push(curr);
+            nodes.push_back(*node);
+            ++curr; // move index forward
+            std::vector<struct comparison>().swap(temp_comp);
+            std::vector<int>().swap(*list);
+        }
+    }
+    // build left & right
+    for (int i = nodes.size() - 1; i > 0; --i) {
+        if (nodes.at(i).triangle != -1) { // Build bbox
+            nodes.at(i).bbox = bbox_triangle(V.row(F(nodes.at(i).triangle, 0)),
+                                             V.row(F(nodes.at(i).triangle, 1)),
+                                             V.row(F(nodes.at(i).triangle, 2)));
+        } else {
+            nodes.at(i).bbox =
+                nodes.at(nodes.at(i).left)
+                    .bbox.merged(nodes.at(nodes.at(i).right).bbox);
+        }
+        int parent = nodes.at(i).parent;
+        if (nodes.at(parent).left == -1) {
+            nodes.at(parent).left = i;
+        } else {
+            nodes.at(parent).right = i;
+        }
+    }
+    root = 0;
+    nodes.at(0).bbox = nodes.at(nodes.at(0).left)
+                           .bbox.merged(nodes.at(nodes.at(0).right).bbox);
+	printf("tree constructed\n");
+    // for test
+    // for (std::vector<Node>::iterator it = nodes.begin(); it != nodes.end();
+    //  ++it) {
+    // printf("%d, %d, %d\n ", it->parent, it->left, it->right);
+    // }
+    // delete centroids
 }
 
 AABBTree::AABBTree(const MatrixXd &V, const MatrixXi &F) {
@@ -205,7 +323,7 @@ AABBTree::AABBTree(const MatrixXd &V, const MatrixXi &F) {
         centroids.row(i) /= F.cols();
     }
     // create vector, associate centroid with index
-    long curr = 0; // for parent index
+    int curr = 0; // for parent index
     std::queue<std::vector<struct centroid *> *> q_centroid;
     std::queue<int> q_parent;
     q_parent.push(-1);
@@ -238,7 +356,11 @@ AABBTree::AABBTree(const MatrixXd &V, const MatrixXi &F) {
             ++curr; // move index forward
             std::vector<struct centroid*>().swap(*list);
         } else {
-            switch (curr % 3) { // change sorting direction
+            int p = 1;
+            while( pow(2,p) < curr) {
+                ++p;
+            }
+            switch (p % 3) { // change sorting direction
             case 0:
                 std::sort(list->begin(), list->end(), sort_x);
                 break;
@@ -295,6 +417,8 @@ AABBTree::AABBTree(const MatrixXd &V, const MatrixXi &F) {
     root = 0;
     nodes.at(0).bbox = nodes.at(nodes.at(0).left)
                            .bbox.merged(nodes.at(nodes.at(0).right).bbox);
+    printf("centroids: %zu\n", centroids.rows());
+    printf("tree size: %zu\n", nodes.size());
 	printf("tree constructed\n");
     // for test
     // for (std::vector<Node>::iterator it = nodes.begin(); it != nodes.end();
@@ -378,45 +502,48 @@ bool intersect_box(const Ray &ray, const AlignedBox3d &box) {
     // Compute whether the ray intersects the given box.
     // There is no need to set the resulting normal and ray parameter, since
     // we are not testing with the real surface here anyway.
-    // code modified from
-    // https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-box-intersection
-    double t_min =
+    double temp;
+    // compute two intersections on xy plane
+    double t_x_min =
         (box.corner(box.BottomLeft)(0) - ray.origin(0)) / ray.direction(0);
-    double t_max =
+    double t_x_max =
         (box.corner(box.TopRightCeil)(0) - ray.origin(0)) / ray.direction(0);
-    if (t_min > t_max) {
-        std::swap(t_min, t_max);
-    }
-
-    double t_ymin =
+    double t_y_min =
         (box.corner(box.BottomLeft)(1) - ray.origin(1)) / ray.direction(1);
-    double t_ymax =
+    double t_y_max =
         (box.corner(box.TopRightCeil)(1) - ray.origin(1)) / ray.direction(1);
-    if (t_ymin > t_ymax) {
-        std::swap(t_ymin, t_ymax);
-    }
+    double t_z_min =
+        (box.corner(box.BottomLeft)(2) - ray.origin(2)) / ray.direction(2);
+    double t_z_max =
+        (box.corner(box.TopRightCeil)(2) - ray.origin(2)) / ray.direction(2);
 
-    if (t_min > t_ymax || t_max < t_ymin) {
+    if (t_x_min > t_x_max) {
+        temp = t_x_min;
+        t_x_min = t_x_max;
+        t_x_max = temp;
+    }
+    if (t_y_min > t_y_max) {
+        temp = t_y_min;
+        t_y_min = t_y_max;
+        t_y_max = temp;
+    }
+    if (t_z_min > t_z_max) {
+        temp = t_z_min;
+        t_z_min = t_z_max;
+        t_z_max = temp;
+    }
+    if (t_x_min > t_y_max || t_x_max < t_y_min) {
         return false;
     }
-
-    if (t_min < t_ymin) {
-        t_min = t_ymin;
+    // compute actual intersect points on xy plane, save as t_x_min, t_x_max
+    if (t_x_max > t_y_max) {
+        t_x_max = t_y_max;
+    }
+    if (t_x_min < t_y_min) {
+        t_x_min = t_y_min;
     }
 
-    if (t_max > t_ymax) {
-        t_max = t_ymax;
-    }
-
-    double t_zmin =
-        (box.corner(box.BottomLeft)(2) - ray.origin(2)) / ray.direction(2);
-    double t_zmax =
-        (box.corner(box.TopRightCeil)(2) - ray.origin(2)) / ray.direction(2);
-    if (t_zmin > t_zmax) {
-        std::swap(t_zmin, t_zmax);
-    }
-
-    if (t_min > t_zmax || t_max < t_zmin) {
+    if (t_x_min > t_z_max || t_x_max < t_z_min) {
         return false;
     }
     return true;
@@ -463,8 +590,7 @@ bool Mesh::intersect(const Ray &ray, Intersection &closest_hit) {
     Intersection hit;
     double min_param = 1000;
     bool intersect = false;
-    AABBTree tree = bvh;
-    AABBTree::Node curr = tree.nodes[tree.root];
+    AABBTree::Node curr = bvh.nodes[bvh.root];
     std::queue<AABBTree::Node> q_nodes;
     q_nodes.push(curr);
     while (q_nodes.size() > 0) {
@@ -483,8 +609,8 @@ bool Mesh::intersect(const Ray &ray, Intersection &closest_hit) {
             }
         } else {
             if (intersect_box(ray, curr.bbox)) {
-                q_nodes.push(tree.nodes[curr.left]);
-                q_nodes.push(tree.nodes[curr.right]);
+                q_nodes.push(bvh.nodes[curr.left]);
+                q_nodes.push(bvh.nodes[curr.right]);
             }
         }
     }
@@ -552,13 +678,8 @@ Vector3d ray_color(const Scene &scene, const Ray &ray, const Object &obj,
             ray.direction.normalized() -
             2 * (hit.normal.dot(ray.direction.normalized())) *
                 hit.normal; // compute reflect ray direction
-        Intersection r_hit;
-        Object *n_obj = find_nearest_object(scene, reflection, r_hit);
-        if (n_obj) { // make sure the intersection point is in the
-                     // positive direction of reflection
-            reflection_color = mat.reflection_color.cwiseProduct(
-                ray_color(scene, reflection, *n_obj, r_hit, max_bounce - 1));
-        }
+        reflection_color = mat.reflection_color.cwiseProduct(
+            shoot_ray(scene, reflection, max_bounce-1));
     }
 
     // TODO (Assignment 2, refracted ray)
@@ -566,7 +687,8 @@ Vector3d ray_color(const Scene &scene, const Ray &ray, const Object &obj,
 
     // Rendering equation
     Vector3d C =
-        ambient_color + lights_color + reflection_color + refraction_color;
+        ambient_color + lights_color ;
+        // ambient_color + lights_color + reflection_color + refraction_color;
 
     return C;
 }
@@ -579,7 +701,7 @@ Object *find_nearest_object(const Scene &scene, const Ray &ray,
     Intersection hit;
     const double eps = 1e-10;   // small epsilon for numerical precision
     double closest_param = 100; // a large number that is greater than t
-    long int count = 0;
+    int count = 0;
     for (const ObjectPtr &obj : scene.objects) {
         if (obj->intersect(ray, hit)) {
             if (hit.ray_param < closest_param && hit.ray_param > eps) {
@@ -649,7 +771,7 @@ void render_scene(const Scene &scene) {
     // The pixel grid through which we shoot rays is at a distance
     // 'focal_length' from the sensor, and is scaled from the canonical
     // [-1,1] in order to produce the target field of view.
-    int iter = 150;
+    int iter = 1;
     Vector3d grid_origin(-scale_x, scale_y, -scene.camera.focal_length);
     Vector3d x_displacement(2.0 / w * scale_x, 0, 0);
     Vector3d y_displacement(0, -2.0 / h * scale_y, 0);

@@ -183,18 +183,16 @@ Vector3d ray_color(const Scene &scene, const Ray &ray, const Object &obj, const 
 	}
 	// TODO: Compute the color of the reflected ray and add its contribution to the current point color.
 	Vector3d reflection_color(0, 0, 0);
-	if (max_bounce > 0) {
-		Ray reflection;
-		reflection.origin = hit.position;
-		reflection.direction = ray.direction.normalized() - 2 * (hit.normal.dot(ray.direction.normalized())) * hit.normal; // compute reflect ray direction
-		Intersection r_hit;
-		Object *n_obj = find_nearest_object(scene, reflection, r_hit);
-		if (n_obj) { // make sure the intersection point is in the positive direction of reflection
-			reflection_color = mat.reflection_color.cwiseProduct(ray_color(scene, reflection, *n_obj, r_hit, max_bounce - 1));
-		} 
-	}
-
-	// TODO: Compute the color of the refracted ray and add its contribution to the current point color.
+    if (max_bounce > 0) {
+        Ray reflection;
+        reflection.origin = hit.position;
+        reflection.direction =
+            ray.direction.normalized() -
+            2 * (hit.normal.dot(ray.direction.normalized())) *
+                hit.normal; // compute reflect ray direction
+        reflection_color = mat.reflection_color.cwiseProduct(
+            shoot_ray(scene, reflection, max_bounce-1));
+    }	// TODO: Compute the color of the refracted ray and add its contribution to the current point color.
 	//       Make sure to check for total internal reflection before shooting a new ray.
 	Vector3d refraction_color(0, 0, 0);
 	Ray refraction;

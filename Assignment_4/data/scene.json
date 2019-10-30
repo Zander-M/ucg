@@ -1,7 +1,7 @@
 {
 	"Scene":
 	{
-		"Background": [0.0, 0.0, 0.0],
+		"Background": [0.0, 0.3, 0.0],
 		"Ambient": [0.2, 0.2, 0.2]
 	},
 
@@ -11,11 +11,11 @@
 		"Position": [0, 0, 2],
 		"FieldOfView": 0.7854,
 		"FocalLength": 2.0,
-		"LensRadius": 0.08
+		"LensRadius": 0.00
 	},
 	"Materials": [
 		{
-			"Ambient": [0.5, 0.5, 0.5],
+			"Ambient": [1.0, 0.96, 0.0],
 			"Diffuse": [0.5, 0.5, 0.5],
 			"Specular": [0.2, 0.2, 0.2],
 			"Mirror": [0.7, 0.7, 0.7],
