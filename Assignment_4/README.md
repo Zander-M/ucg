@@ -1,8 +1,6 @@
 Ray Tracing: Triangle Meshes and AABB Trees
 ===========================================
 
-**Due Date**: None (this is an optional assignment)
-
 The goal of this assignment is to implement ray tracing for a triangle mesh, and implement acceleration structures to make the computation faster.
 
 ### Using Eigen
@@ -84,7 +82,7 @@ After compiling the code following the process described in the [general instruc
 
 ```
 mkdir build; cd build; cmake ..; make
-./assignment3 ../data/scene.json
+./assignment4 ../data/scene.json
 ```
 Once you complete the assignment, you should see result a picture generated in your folder.
 
