@@ -39,10 +39,11 @@ V_COLOR color = COLOR_1;
 
 int t_count = 0;     // count number of triangles
 int t_selected = -1; // index of triangle selected
+int t_prev = -1;
 int v_selected = -1; // index of vertex selected
 int active_vtx =
     0; // for insertion mode, keep track of how many vertices have been placed
-// int trans_mode = 0; // indicator of whether in translation mode
+int trans_mode = 0; // indicator of whether in translation mode
 
 // Contains the vertex positions
 Eigen::MatrixXf view(4, 4);      // transformation matrix
@@ -50,14 +51,15 @@ Eigen::MatrixXf V(2, 3);          // Vertex Matrix
 Eigen::MatrixXf Color(3, 3);      // for RGB color
 Eigen::MatrixXf Prev_Color(3, 3); // previous color before selection.
 Eigen::Vector2f Click_Pos;        // click position
+Eigen::Vector2f Prev_Pos;        // previous position
 Eigen::Vector2f offset;           // movement offset
 
 //////// HELPER FUNCTIONS ////////
 
-// return intersect triangle index if a point intersects with a triangle, else
+// return 0if a point intersects with a triangle and set t_selected, else
 // -1.
-int point2triangle(Eigen::Vector2f pt, Eigen::MatrixXf vertex, int t_count) {
-    for (int i = t_count - 1; i >= 0; --i) { // index start from 0
+int point2triangle(Eigen::Vector2f pt, Eigen::MatrixXf vertex, int t_cnt) {
+    for (int i = t_cnt - 1; i >= 0; --i) { // index start from 0
         Eigen::Vector2f a = V.col(3 * i + 2) - V.col(3 * i);
         Eigen::Vector2f b = V.col(3 * i + 1) - V.col(3 * i);
         Eigen::Matrix2f mtx;
@@ -67,7 +69,7 @@ int point2triangle(Eigen::Vector2f pt, Eigen::MatrixXf vertex, int t_count) {
             mtx.colPivHouseholderQr().solve(pt - V.col(3 * i));
         if (sol(0) > 0 && sol(1) > 0 && sol(0) + sol(1) < 1) {
             t_selected = i;
-            return i;
+            return 0;
         }
     }
     t_selected = -1;
@@ -81,13 +83,14 @@ int point2vertex(Eigen::Vector2f pt, Eigen::MatrixXf vertex) {
     Eigen::Vector2f diff;
     for (int i = 0; i < V.cols(); ++i) {
         diff = pt - V.col(i);
-        if (diff.norm() < dis && diff.norm() < 0.05) {
+        if (diff.norm() < dis && diff.norm() < 0.2) {
             ind = i;
             dis = diff.norm();
         }
     }
     v_selected = ind;
-    return ind;
+    printf("vertex: %d\n", ind);
+    return 0;
 }
 
 /////// CALLBACKS ////////
@@ -116,8 +119,6 @@ void mouse_button_callback(GLFWwindow *window, int button, int action,
     Eigen::Vector4f p_canonical((p_screen[0]/width)*2-1,(p_screen[1]/height)*2-1,0,1);
     Eigen::Vector4f p_world = view.inverse()*p_canonical;
     Click_Pos << p_world(0), p_world(1); // update click pos
-    t_selected = -1;             // reset selection
-    v_selected = -1;
 
     // Update the position of the first vertex if the left button is pressed
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
@@ -162,25 +163,29 @@ void mouse_button_callback(GLFWwindow *window, int button, int action,
                     1; // change color to blue
                 Color.col(3 * t_selected + 1) << 0, 0, 1;
                 Color.col(3 * t_selected + 2) << 0, 0, 1;
+                Prev_Pos << p_world(0), p_world(1);
+                trans_mode = 1;
             }
+            break;
         }
         case DELETE: {
             if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
                 point2triangle(Click_Pos, V, t_count);
                 if (t_selected != -1) {
-                    for (int i = t_selected; i < V.cols() - 3; ++i) {
+                    for (int i = t_selected * 3; i < V.cols() - 3; ++i) {
                         V.col(i) << V.col(i + 3);
-                        Color.col(i) << V.col(i + 3);
+                        Color.col(i) << Color.col(i + 3);
                     }
                     V.conservativeResize(V.rows(), V.cols() - 3);
                     Color.conservativeResize(Color.rows(), Color.cols() - 3);
                     t_count--;
+                    t_selected = -1;
                 }
             }
             break;
         }
         case COLOR: {
-			printf("COLOR");
+			printf("COLOR\n");
             point2vertex(Click_Pos, V);
             break;
         }
@@ -190,7 +195,7 @@ void mouse_button_callback(GLFWwindow *window, int button, int action,
         }
         }
     } else if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
-        if (mode == TRANSLATION) {
+        if (mode == TRANSLATION && trans_mode == 1) {
             // offset << xworld - Click_Pos(0), yworld - Click_Pos(1);
             // V.col(3 * t_selected ) += offset;
             // V.col(3 * t_selected + 1) += offset;
@@ -199,15 +204,17 @@ void mouse_button_callback(GLFWwindow *window, int button, int action,
             Color.col(3 * t_selected) << Prev_Color.col(0);
             Color.col(3 * t_selected + 1) << Prev_Color.col(1);
             Color.col(3 * t_selected + 2) << Prev_Color.col(2);
-            t_selected = -1;
+            t_prev = t_selected;
+            t_selected = -1; // reset
+            trans_mode = 0;
         }
     }
-    // U	pload the change to the GPU
+    // Upload the change to the GPU
     VBO.update(V);
     VBO_color.update(Color);
 }
 
-void cursor_move_callback(GLFWwindow *window, double x_pos, double y_pos) {
+void cursor_move_callback(GLFWwindow *window, double xpos, double ypos) {
     int width, height;
     glfwGetFramebufferSize(window, &width, &height);
 
@@ -216,14 +223,14 @@ void cursor_move_callback(GLFWwindow *window, double x_pos, double y_pos) {
 
     // D	educe position of the mouse in the viewport
     double highdpi = (double)width / (double)width_window;
-    x_pos *= highdpi;
-    y_pos *= highdpi;
+    xpos *= highdpi;
+    ypos *= highdpi;
 
-	Eigen::Vector4f p_screen(x_pos,height-1-y_pos,0,1);
+	Eigen::Vector4f p_screen(xpos,height-1-ypos,0,1);
     Eigen::Vector4f p_canonical((p_screen[0]/width)*2-1,(p_screen[1]/height)*2-1,0,1);
     Eigen::Vector4f p_world = view.inverse()*p_canonical;
     // NOTE: y axis is flipped in glfw
-    printf("%f %f\n", p_world(0), p_world(1)); // test
+    // printf("%f %f\n", p_world(0), p_world(1)); // test
     switch (mode) {
     case NORMAL:
         break;
@@ -237,11 +244,12 @@ void cursor_move_callback(GLFWwindow *window, double x_pos, double y_pos) {
         break;
     }
     case TRANSLATION: {
-        if (t_selected != -1) {
-            offset << p_world(0) - Click_Pos(0), p_world(1) - Click_Pos(1);
+        if (t_selected != -1 && trans_mode == 1) {
+            offset << p_world(0) - Prev_Pos(0), p_world(1) - Prev_Pos(1);
             V.col(t_selected * 3) += offset;
             V.col(t_selected * 3 + 1) += offset;
             V.col(t_selected * 3 + 2) += offset;
+            Prev_Pos << p_world(0), p_world(1);
         }
         break;
     }
@@ -256,52 +264,52 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action,
                   int mods) {
     // Update the position of the first vertex if the keys 1,2, or 3 are
     // pressed
+    if (action == GLFW_PRESS) {
     switch (key) {
     case GLFW_KEY_1: // color 1
         if (mode == COLOR && v_selected != -1) {
-            Color.col(v_selected) = Eigen::Vector3f(1, 0, 0); // red
-            break;
+            Color.col(v_selected) << 1, 0, 0; // red
         }
+        break;
     case GLFW_KEY_2: // color 2
         if (mode == COLOR && v_selected != -1) {
-            Color.col(v_selected) = Eigen::Vector3f(0, 1, 0); // red
-            break;
+            Color.col(v_selected) << 0, 1, 0; // red
         }
+        break;
     case GLFW_KEY_3: // color 3
         if (mode == COLOR && v_selected != -1) {
-            Color.col(v_selected) = Eigen::Vector3f(0, 0, 1); // red
-            break;
-        }
+            Color.col(v_selected) << 0, 0, 1; // red
+        break;
     case GLFW_KEY_4: // color 4
         if (mode == COLOR && v_selected != -1) {
-            Color.col(v_selected) = Eigen::Vector3f(1, 1, 0); // red
-            break;
+            Color.col(v_selected) << 1, 1, 0; // red
         }
+        break;
     case GLFW_KEY_5: // color 5
         if (mode == COLOR && v_selected != -1) {
-            Color.col(v_selected) = Eigen::Vector3f(1, 0, 1); // red
-            break;
+            Color.col(v_selected) << 1, 0, 1; // red
         }
+        break;
     case GLFW_KEY_6: // color 6
         if (mode == COLOR && v_selected != -1) {
-            Color.col(v_selected) = Eigen::Vector3f(0, 1, 1); // red
-            break;
+            Color.col(v_selected) << 0, 1, 1; // red
         }
+        break;
     case GLFW_KEY_7: // color 7
         if (mode == COLOR && v_selected != -1) {
-            Color.col(v_selected) = Eigen::Vector3f(0.5, 0, 0.5); // red
-            break;
+            Color.col(v_selected) << 1, 1, 1; // red
         }
+        break;
     case GLFW_KEY_8: // color 8
         if (mode == COLOR && v_selected != -1) {
-            Color.col(v_selected) = Eigen::Vector3f(0, 0.5, 0.5); // red
-            break;
+            Color.col(v_selected) << 0.5, 0.5, 0; // red
         }
+        break;
     case GLFW_KEY_9: // color 9
         if (mode == COLOR && v_selected != -1) {
-            Color.col(v_selected) = Eigen::Vector3f(0.5, 0.5, 0.5); // red
-            break;
+            Color.col(v_selected) << 1, 0.5, 0.5; // red
         }
+        break;
     case GLFW_KEY_I:
         mode = INSERTION;
         printf("INSERTION\n");
@@ -363,15 +371,20 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action,
 		printf("t_selected: %d\n", t_selected);
 		printf("v_selected: %d\n", v_selected);
         printf("active_v: %d\n", active_vtx);
+        printf("t_prev: %d\n", t_prev);
 		break;
     default:
         break;
     }
+    }
+    active_vtx = 0; // set active_back to 0
 
     // Upload the change to the GPU
     VBO.update(V);
     VBO_color.update(Color);
 }
+}
+
 
 int main(void) {
     // Initialize the GLFW library
@@ -448,7 +461,6 @@ int main(void) {
     Program program;
     const GLchar *vertex_shader = R"(
 		#version 150 core
-
 		uniform mat4 view;
 		in vec2 position;
 		in vec3 v_color;
