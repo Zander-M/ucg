@@ -9,6 +9,7 @@
 #include <Eigen/Dense>
 // Timer
 #include <chrono>
+#include <cmath>
 ////////////////////////////////////////////////////////////////////////////////
 
 enum MODE { // for mode
@@ -265,6 +266,12 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action,
     // Update the position of the first vertex if the keys 1,2, or 3 are
     // pressed
     if (action == GLFW_PRESS) {
+        if (mode == INSERTION && active_vtx != 0) {
+            V.conservativeResize(V.rows(),
+                                 V.cols() - 3); // if previous mode is insertion
+                                                // and triangle is not drawn
+            Color.conservativeResize(Color.rows(), Color.cols() - 3);
+        }
     switch (key) {
     case GLFW_KEY_1: // color 1
         if (mode == COLOR && v_selected != -1) {
@@ -315,59 +322,118 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action,
         printf("INSERTION\n");
         break;
     case GLFW_KEY_O:
-        if (mode == INSERTION && active_vtx != 0) {
-            V.conservativeResize(V.rows(),
-                                 V.cols() - 3); // if previous mode is insertion
-                                                // and triangle is not drawn
-            Color.conservativeResize(Color.rows(), Color.cols() - 3);
-        }
+
         mode = TRANSLATION;
         printf("TRANSLATION\n");
         break;
     case GLFW_KEY_P:
-        if (mode == INSERTION && active_vtx != 0) {
-            V.conservativeResize(V.rows(),
-                                 V.cols() - 3); // if previous mode is insertion
-                                                // and triangle is not drawn
-            Color.conservativeResize(Color.rows(), Color.cols() - 3);
-        }
         mode = DELETE;
         printf("DELETE\n");
         break;
     case GLFW_KEY_C:
-        if (mode == INSERTION && active_vtx != 0) {
-            V.conservativeResize(V.rows(),
-                                 V.cols() - 3); // if previous mode is insertion
-                                                // and triangle is not drawn
-            Color.conservativeResize(Color.rows(), Color.cols() - 3);
-        }
         mode = COLOR;
         printf("COLOR\n");
         break;
     case GLFW_KEY_Q:
-        if (mode == INSERTION && active_vtx != 0) {
-            V.conservativeResize(V.rows(),
-                                 V.cols() - 3); // if previous mode is insertion
-                                                // and triangle is not drawn
-            Color.conservativeResize(Color.rows(), Color.cols() - 3);
-        }
+
+        t_prev = -1; // reset
         mode = NORMAL;
         printf("NORMAL\n");
         break;
-    case GLFW_KEY_H:
-        break;
-    case GLFW_KEY_J:
-        break;
-    case GLFW_KEY_K:
-        break;
-    case GLFW_KEY_L:
-        break;
+    case GLFW_KEY_H:{
+        if (t_prev != -1 && mode == TRANSLATION) {
+            printf("C_wize rotate\n");
+            Eigen::Vector2f b_center = (V.col(3*t_prev) + V.col(3*t_prev+1) + V.col(3*t_prev + 2)) / 3;
+            Eigen::Matrix3f t_mtx;
+            t_mtx << 1, 0, -b_center(0),
+                     0, 1, -b_center(1),
+                     0, 0,            1;
+            Eigen::Matrix3f r_mtx;
+            r_mtx << cos(10./360.*2*M_PI), sin(10./360.*2*M_PI), 0,
+                    -sin(10./360.*2*M_PI), cos(10./360.*2*M_PI), 0,
+                     0,                                     0, 1;
+            for (int i = 0; i < 3; ++i) {
+                Eigen::Vector3f tmp;
+                tmp << V.col(t_prev*3+i)(0), V.col(t_prev*3+i)(1), 1;
+                tmp = t_mtx.inverse()*r_mtx *t_mtx*tmp;
+                // tmp = t_mtx.inverse() * r_mtx * t_mtx * tmp;
+                V.col(t_prev*3 + i) << tmp(0), tmp(1);
+            }
+        }
+    }
+    break;
+    case GLFW_KEY_J: {
+        if (t_prev != -1 && mode == TRANSLATION) {
+            printf("Anti_C_wize rotate\n");
+            Eigen::Vector2f b_center = (V.col(3*t_prev) + V.col(3*t_prev+1) + V.col(3*t_prev + 2)) / 3;
+            Eigen::Matrix3f t_mtx;
+            t_mtx << 1, 0, -b_center(0),
+                     0, 1, -b_center(1),
+                     0, 0,            1;
+            Eigen::Matrix3f r_mtx;
+            r_mtx << cos(-10./360.*2*M_PI), sin(-10./360.*2*M_PI), 0,
+                    -sin(-10./360.*2*M_PI), cos(-10./360.*2*M_PI), 0,
+                     0,                                     0, 1;
+            for (int i = 0; i < 3; ++i) {
+                Eigen::Vector3f tmp;
+                tmp << V.col(t_prev*3+i)(0), V.col(t_prev*3+i)(1), 1;
+                tmp = t_mtx.inverse()*r_mtx *t_mtx*tmp;
+                // tmp = t_mtx.inverse() * r_mtx * t_mtx * tmp;
+                V.col(t_prev*3 + i) << tmp(0), tmp(1);
+            }
+        }
+    }
+    break;
+    case GLFW_KEY_K: {
+        if (t_prev != -1 && mode == TRANSLATION) {
+            printf("Expand 25%%\n");
+            Eigen::Vector2f b_center = (V.col(3*t_prev) + V.col(3*t_prev+1) + V.col(3*t_prev + 2)) / 3;
+            Eigen::Matrix3f t_mtx;
+            t_mtx << 1, 0, -b_center(0),
+                     0, 1, -b_center(1),
+                     0, 0,            1;
+            Eigen::Matrix3f r_mtx;
+            r_mtx << 1.25,0, 0,
+                     0, 1.25, 0,
+                     0,                                     0, 1;
+            for (int i = 0; i < 3; ++i) {
+                Eigen::Vector3f tmp;
+                tmp << V.col(t_prev*3+i)(0), V.col(t_prev*3+i)(1), 1;
+                tmp = t_mtx.inverse()*r_mtx *t_mtx*tmp;
+                // tmp = t_mtx.inverse() * r_mtx * t_mtx * tmp;
+                V.col(t_prev*3 + i) << tmp(0), tmp(1);
+            }
+        }
+    }
+    break;
+    case GLFW_KEY_L: {
+               if (t_prev != -1 && mode == TRANSLATION) {
+            printf("Shrink 25%%\n");
+            Eigen::Vector2f b_center = (V.col(3*t_prev) + V.col(3*t_prev+1) + V.col(3*t_prev + 2)) / 3;
+            Eigen::Matrix3f t_mtx;
+            t_mtx << 1, 0, -b_center(0),
+                     0, 1, -b_center(1),
+                     0, 0,            1;
+            Eigen::Matrix3f r_mtx;
+            r_mtx << 0.75, 0, 0,
+                     0, 0.75, 0,
+                     0, 0, 1;
+            for (int i = 0; i < 3; ++i) {
+                Eigen::Vector3f tmp;
+                tmp << V.col(t_prev*3+i)(0), V.col(t_prev*3+i)(1), 1;
+                tmp = t_mtx.inverse()*r_mtx *t_mtx*tmp;
+                // tmp = t_mtx.inverse() * r_mtx * t_mtx * tmp;
+                V.col(t_prev*3 + i) << tmp(0), tmp(1);
+            }
+        }
+    }
+    break;
     case GLFW_KEY_M:
         printf("%d\n", mode);
         break;
 	case GLFW_KEY_F:
 		printf("t_cound: %d\n", t_count);
-		printf("v_count: %d\n", V.cols());
+		printf("v_count: %ld\n", V.cols());
 		printf("t_selected: %d\n", t_selected);
 		printf("v_selected: %d\n", v_selected);
         printf("active_v: %d\n", active_vtx);
@@ -547,6 +613,7 @@ int main(void) {
         // Draw a triangle
 		for (int i = 0; i < t_count; ++i) {
 			glDrawArrays(GL_TRIANGLES, i*3, 3);
+			glDrawArrays(GL_LINE_LOOP, i*3, 3);
 		}
         if (mode == INSERTION) {
                 glDrawArrays(GL_LINE_LOOP, V.cols() - 3, active_vtx + 1);
