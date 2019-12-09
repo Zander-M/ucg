@@ -12,18 +12,65 @@
 #include <chrono>
 #include <iostream>
 #include <fstream>
+#include <vector>
 ////////////////////////////////////////////////////////////////////////////////
+
+int obj_num = 0; // track obj number
+std::vector<Eigen::Matrix4f *> mtx_list; // track transform mtx
+std::vector<int> obj_tri_num;  // track how many triangle per obj 
+std::vector<int> off_num = {0};  // track offset 
+
+void cube_init(Eigen::MatrixXf &cube_V, Eigen::MatrixXi &cube_F, int len) {
+	// init Vertex
+	cube_V.resize(8, 3);
+	cube_F.resize(12, 3);
+	// vertex coord
+	cube_V << -0.5, -0.5, -0.5,
+			    0.5, -0.5, -0.5,
+			    0.5,  0.5, -0.5,
+			   -0.5,  0.5, -0.5,
+			   -0.5, -0.5,  0.5,
+			    0.5, -0.5,  0.5,
+			    0.5,  0.5,  0.5,
+			   -0.5,  0.5,  0.5;
+
+	// vertex index
+	cube_F <<  0 + len, 1 + len, 2 + len,
+			   0 + len, 3 + len, 2 + len,
+			   0 + len, 1 + len, 5 + len, 
+			   0 + len, 4 + len, 5 + len,
+			   0 + len, 3 + len, 7 + len,
+			   0 + len, 4 + len, 7 + len,
+			   6 + len, 5 + len, 1 + len,
+			   6 + len, 2 + len, 1 + len,
+			   6 + len, 5 + len, 4 + len,
+			   6 + len, 7 + len, 4 + len,
+			   6 + len, 2 + len, 3 + len,
+			   6 + len, 7 + len, 3 + len;
+	cube_V.transposeInPlace();
+	cube_F.transposeInPlace();
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+
 
 // Mesh object, with both CPU data (Eigen::Matrix) and GPU data (the VBOs)
 struct Mesh {
 	Eigen::MatrixXf V; // mesh vertices [3 x n]
 	Eigen::MatrixXi F; // mesh triangles [3 x m]
+	Eigen::MatrixXf T; // mesh trasformation matrix [4 x j]
+	Eigen::VectorXi TI; // mesh transformation index
 
 	// VBO storing vertex position attributes
 	VertexBufferObject V_vbo;
 
 	// VBO storing vertex indices (element buffer)
 	VertexBufferObject F_vbo;
+
+	// VCO storing transformations
+
+	// VCO storing transformation index buffer
 
 	// VAO storing the layout of the shader program for the object 'bunny'
 	VertexArrayObject vao;
@@ -81,18 +128,216 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
 	// Update the position of the first vertex if the keys 1,2, or 3 are pressed
+	if (action == GLFW_PRESS) {
 	switch (key) {
-		case GLFW_KEY_1:
-			break;
-		case GLFW_KEY_2:
-			break;
-		case GLFW_KEY_3:
-			load_off(DATA_DIR "bunny.off", bunny.V, bunny.F);
-			bunny.V_vbo.update(bunny.V);
-			bunny.F_vbo.update(bunny.F);
-			break;
-		default:
-			break;
+			case GLFW_KEY_1: {// add cube
+				Eigen::MatrixXf cube_V;
+				Eigen::MatrixXi cube_F;
+				cube_init(cube_V, cube_F, bunny.V.cols());
+				long orig_V_cols = bunny.V.cols();
+				long orig_F_cols = bunny.F.cols();
+				bunny.V.conservativeResize(bunny.V.rows(), bunny.V.cols() + 8); // resize for cube
+				for (int j = 0; j < 8; ++j) {
+					bunny.V.col(orig_V_cols + j) = cube_V.col(j);
+				} 
+				bunny.F.conservativeResize(bunny.F.rows(), bunny.F.cols() + 12); // resize for cube
+				for (int j = 0; j < 12; ++j) {
+					bunny.F.col(orig_F_cols + j) = cube_F.col(j);
+				} 
+				bunny.V_vbo.update(bunny.V);
+				bunny.F_vbo.update(bunny.F);
+				Eigen::Matrix4f* trans = new Eigen::Matrix4f; // transformation matrix
+				*trans = Eigen::Matrix4f::Identity(); // add identity
+				mtx_list.push_back(trans);
+				obj_tri_num.push_back(cube_F.cols());
+				off_num.push_back(off_num.back() + 3 * cube_F.cols());
+				obj_num++; // increment object count
+				break;
+			}
+
+			case GLFW_KEY_2: {
+				Eigen::MatrixXf Tmp_V;
+				Eigen::MatrixXi Tmp_F;
+				load_off(DATA_DIR "bumpy_cube.off", Tmp_V, Tmp_F);
+				// add offset
+				Eigen::MatrixXi Offset;
+				Offset = Eigen::MatrixXi::Constant(Tmp_V.rows(), Tmp_V.cols(), bunny.V.cols());
+				Tmp_F = Tmp_F + Offset; 
+				long orig_V_cols = bunny.V.cols();
+				long orig_F_cols = bunny.F.cols();
+				bunny.V.conservativeResize(bunny.V.rows(), bunny.V.cols() + Tmp_V.cols()); // resize for cube
+				for (int j = 0; j < Tmp_V.cols(); ++j) {
+					bunny.V.col(orig_V_cols + j) = Tmp_V.col(j);
+				} 
+				bunny.F.conservativeResize(bunny.F.rows(), bunny.F.cols() + Tmp_F.cols()); // resize for cube
+				for (int j = 0; j < Tmp_F.cols(); ++j) {
+					bunny.F.col(orig_F_cols + j) = Tmp_F.col(j);
+				} 
+				bunny.V_vbo.update(bunny.V);
+				bunny.F_vbo.update(bunny.F);
+				float scale = 0;
+				float x_off = - (Tmp_V.row(0).minCoeff() + Tmp_V.row(0).maxCoeff()) / 2;
+				float y_off = - (Tmp_V.row(1).minCoeff() + Tmp_V.row(1).maxCoeff()) / 2;
+				float z_off = - (Tmp_V.row(2).minCoeff() + Tmp_V.row(2).maxCoeff()) / 2;
+				float x_len = Tmp_V.row(0).maxCoeff() - Tmp_V.row(0).minCoeff();
+				float y_len = Tmp_V.row(1).maxCoeff() - Tmp_V.row(1).minCoeff();
+				float z_len = Tmp_V.row(2).maxCoeff() - Tmp_V.row(2).minCoeff();
+				if (scale < x_len) {
+					scale = x_len;
+				}
+				if (scale < y_len) {
+					scale = y_len;
+				}
+				if (scale < z_len) {
+					scale = z_len;
+				}
+				Eigen::Matrix4f* trans = new Eigen::Matrix4f; // transformation matrix
+				*trans = Eigen::Matrix4f::Identity(); // add identity
+				Eigen::Matrix4f scale_mtx = Eigen::Matrix4f::Identity() / scale; // add identity
+				scale_mtx(3,3) = 1;
+				trans->col(3) << x_off, y_off, z_off, 1;
+				std::cout << *trans << std::endl;
+				std::cout << scale_mtx << std::endl;
+				*trans = scale_mtx * (*trans);
+				std::cout << *trans << std::endl;
+				mtx_list.push_back(trans);
+				obj_tri_num.push_back(Tmp_F.cols());
+				off_num.push_back(off_num.back() + 3 * Tmp_F.cols());
+				obj_num++; // increment object count
+				break;
+			}
+
+
+			case GLFW_KEY_3: {
+				Eigen::MatrixXf Tmp_V;
+				Eigen::MatrixXi Tmp_F;
+				load_off(DATA_DIR "bunny.off", Tmp_V, Tmp_F);
+				// add offset
+				Eigen::MatrixXi Offset;
+				Offset = Eigen::MatrixXi::Constant(Tmp_V.rows(), Tmp_V.cols(), bunny.V.cols());
+				Tmp_F = Tmp_F + Offset; 
+				long orig_V_cols = bunny.V.cols();
+				long orig_F_cols = bunny.F.cols();
+				bunny.V.conservativeResize(bunny.V.rows(), bunny.V.cols() + Tmp_V.cols()); // resize for cube
+				for (int j = 0; j < Tmp_V.cols(); ++j) {
+					bunny.V.col(orig_V_cols + j) = Tmp_V.col(j);
+				} 
+				bunny.F.conservativeResize(bunny.F.rows(), bunny.F.cols() + Tmp_F.cols()); // resize for cube
+				for (int j = 0; j < Tmp_F.cols(); ++j) {
+					bunny.F.col(orig_F_cols + j) = Tmp_F.col(j);
+				} 
+				bunny.V_vbo.update(bunny.V);
+				bunny.F_vbo.update(bunny.F);
+				float scale = 0;
+				float x_off = - (Tmp_V.row(0).minCoeff() + Tmp_V.row(0).maxCoeff()) / 2;
+				float y_off = - (Tmp_V.row(1).minCoeff() + Tmp_V.row(1).maxCoeff()) / 2;
+				float z_off = - (Tmp_V.row(2).minCoeff() + Tmp_V.row(2).maxCoeff()) / 2;
+				float x_len = Tmp_V.row(0).maxCoeff() - Tmp_V.row(0).minCoeff();
+				float y_len = Tmp_V.row(1).maxCoeff() - Tmp_V.row(1).minCoeff();
+				float z_len = Tmp_V.row(2).maxCoeff() - Tmp_V.row(2).minCoeff();
+				if (scale < x_len) {
+					scale = x_len;
+				}
+				if (scale < y_len) {
+					scale = y_len;
+				}
+				if (scale < z_len) {
+					scale = z_len;
+				}
+				printf("scale: %f\n", scale);
+				Eigen::Matrix4f* trans = new Eigen::Matrix4f; // transformation matrix
+				*trans = Eigen::Matrix4f::Identity(); // add identity
+				Eigen::Matrix4f scale_mtx = Eigen::Matrix4f::Identity() / scale; // add identity
+				scale_mtx(3,3) = 1;
+				trans->col(3) << x_off, y_off, z_off, 1;
+				std::cout << *trans << std::endl;
+				std::cout << scale_mtx << std::endl;
+				*trans = scale_mtx * (*trans);
+				std::cout << *trans << std::endl;
+				mtx_list.push_back(trans);
+				obj_tri_num.push_back(Tmp_F.cols());
+				off_num.push_back(off_num.back() + 3 * Tmp_F.cols());
+				obj_num++; // increment object count
+				break;
+			// 	Eigen::MatrixXf Bunny_V;
+			// 	Eigen::MatrixXi Bunny_F;
+			// 	load_off(DATA_DIR "bunny.off", Bunny_V, Bunny_F);
+			// 	// add offset
+			// 	Eigen::MatrixXi Offset;
+			// 	Offset = Eigen::Matrix4i::Constant(bunny.V.cols());
+			// 	Bunny_F = Bunny_F + Offset; 
+			// 	long orig_V_cols = bunny.V.cols();
+			// 	long orig_F_cols = bunny.F.cols();
+			// 	bunny.V.conservativeResize(bunny.V.rows(), bunny.V.cols() + Bunny_V.cols()); // resize for cube
+			// 	for (int j = 0; j < Bunny_V.cols(); ++j) {
+			// 		bunny.V.col(orig_V_cols + j) = Bunny_V.col(j);
+			// 	} 
+			// 	bunny.F.conservativeResize(bunny.F.rows(), bunny.F.cols() + Bunny_F.cols()); // resize for cube
+			// 	for (int j = 0; j < Bunny_F.cols(); ++j) {
+			// 		bunny.F.col(orig_F_cols + j) = Bunny_F.col(j);
+			// 	} 
+			// 	bunny.V_vbo.update(bunny.V);
+			// 	bunny.F_vbo.update(bunny.F);
+			// 	float scale = 0;
+			// 	float x_off = (Bunny_V.row(0).minCoeff() - Bunny_V.row(0).maxCoeff()) / 2;
+			// 	if (-x_off > scale) {
+			// 		scale = - 1 / (2 * x_off);
+			// 	}
+			// 	float y_off = (Bunny_V.row(1).minCoeff() - Bunny_V.row(1).maxCoeff()) / 2;
+			// 	if (-y_off > scale) {
+			// 		scale = - 1 / (2 * y_off);
+			// 	}
+			// 	float z_off = (Bunny_V.row(2).minCoeff() - Bunny_V.row(2).maxCoeff()) / 2;
+			// 	if (-z_off > scale) {
+			// 		scale = - 1 / (2 * z_off);
+			// 	}
+
+			// 	Eigen::Matrix4f* trans = new Eigen::Matrix4f; // transformation matrix
+			// 	*trans = Eigen::Matrix4f::Identity(); // add identity
+			// 	Eigen::Matrix4f scale_mtx = Eigen::Matrix4f::Identity() * scale; // add identity
+			// 	scale_mtx(3,3) = 1;
+			// 	trans->col(3) << x_off, y_off, z_off, 1;
+			// 	std::cout << *trans << std::endl;
+			// 	*trans = scale_mtx * (*trans);
+			// 	std::cout << *trans << std::endl;
+			// 	mtx_list.push_back(trans);
+			// 	obj_tri_num.push_back(Bunny_F.cols());
+			// 	off_num.push_back(off_num.back() + 3 * Bunny_F.cols());
+			// 	obj_num++; // increment object count
+
+			// 	break;
+			}
+
+			case GLFW_KEY_4: {
+				bunny.V.resize(3, 0);
+				bunny.F.resize(3, 0);
+				bunny.V_vbo.update(bunny.V);
+				bunny.F_vbo.update(bunny.F);
+				for (int i = 0; i < obj_num; ++i) {
+					delete mtx_list[i];
+				}
+				mtx_list.clear();
+				obj_tri_num.clear();
+				off_num = {0};
+				obj_num = 0; // reset 
+				break;
+			}
+
+			case GLFW_KEY_P: {
+				printf("rows: %ld\n", bunny.V.cols());
+				printf("obj_count: %d\n", obj_num);
+				std::cout << "Offset:" << std::endl;
+				for (int i = 0; i < off_num.size(); ++i)
+					std::cout << off_num[i] << " ";
+				std::cout << std::endl;
+				std::cout << "Tri num:" << std::endl;
+				for (int i = 0; i < obj_tri_num.size(); ++i)
+					std::cout << obj_tri_num[i] << " ";
+				std::cout << std::endl;
+			}
+			default:
+				break;
+		}
 	}
 }
 
@@ -185,16 +430,16 @@ int main(void) {
 		bunny.F_vbo.init(GL_UNSIGNED_INT, GL_ELEMENT_ARRAY_BUFFER);
 
 		// Vertex positions
-		bunny.V.resize(3, 3);
-		bunny.V <<
-			0, 0.5, -0.5,
-			0.5, -0.5, -0.5,
-			0, 0, 0;
+		bunny.V.resize(3, 0);
+		// bunny.V <<
+		// 	0, 0.5, -0.5,
+		// 	0.5, -0.5, -0.5,
+		// 	0, 0, 0;
 		bunny.V_vbo.update(bunny.V);
 
 		// Triangle indices
-		bunny.F.resize(3, 1);
-		bunny.F << 0, 1, 2;
+		bunny.F.resize(3, 0);
+		// bunny.F << 0, 1, 2;
 		bunny.F_vbo.update(bunny.F);
 
 		// Create a new VAO for the bunny. and bind it
@@ -248,7 +493,6 @@ int main(void) {
 			bunny.vao.bind();
 
 			// Model matrix for the bunny
-			glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, I.data());
 
 			// Set the uniform value depending on the time difference
 			auto t_now = std::chrono::high_resolution_clock::now();
@@ -256,7 +500,18 @@ int main(void) {
 			glUniform3f(program.uniform("triangleColor"), (float)(sin(time * 4.0f) + 1.0f) / 2.0f, 0.0f, 0.0f);
 
 			// Draw the triangles
-			glDrawElements(GL_TRIANGLES, 3 * bunny.F.cols(), bunny.F_vbo.scalar_type, 0);
+			for (int i = 0; i < obj_num; ++i) {
+				glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, mtx_list[i]->data());
+				// for (int j = 0; j < obj_tri_num[i]; ++j) {
+				// 	glDrawArrays(GL_TRIANGLES, off_num[i] + 3*j, 3);
+				// }
+				// glDrawElements(GL_TRIANGLES, 3 * obj_tri_num[i], bunny.F_vbo.scalar_type, NULL);
+				glDrawElements(GL_TRIANGLES, 10000,bunny.F_vbo.scalar_type, NULL);
+			}
+			// glDrawArrays(GL_TRIANGLES, 0, bunny.V.cols());
+			// for (int i = 0; i < bunny.F.cols()/3; ++i) {
+				// glDrawArrays(GL_LINE_LOOP, i * 3, 3);
+			// }
 		}
 
 		// Swap front and back buffers
