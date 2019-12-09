@@ -126,6 +126,55 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 	// TODO: Ray-casting for object selection (Ex.3)
 }
 
+void add_off(std::string dir) {
+	Eigen::MatrixXf Tmp_V;
+	Eigen::MatrixXi Tmp_F;
+	std::string full_dir = DATA_DIR + dir;
+	load_off(full_dir , Tmp_V, Tmp_F);
+	// add offset
+	Eigen::MatrixXi Offset;
+	Offset = Eigen::MatrixXi::Constant(Tmp_F.rows(), Tmp_F.cols(), bunny.V.cols());
+	Tmp_F = Tmp_F + Offset; 
+	long orig_V_cols = bunny.V.cols();
+	long orig_F_cols = bunny.F.cols();
+	bunny.V.conservativeResize(bunny.V.rows(), bunny.V.cols() + Tmp_V.cols()); // resize for cube
+	for (int j = 0; j < Tmp_V.cols(); ++j) {
+		bunny.V.col(orig_V_cols + j) = Tmp_V.col(j);
+	} 
+	bunny.F.conservativeResize(bunny.F.rows(), bunny.F.cols() + Tmp_F.cols()); // resize for cube
+	for (int j = 0; j < Tmp_F.cols(); ++j) {
+		bunny.F.col(orig_F_cols + j) = Tmp_F.col(j);
+	} 
+	bunny.V_vbo.update(bunny.V);
+	bunny.F_vbo.update(bunny.F);
+	float scale = 0;
+	float x_off = - (Tmp_V.row(0).minCoeff() + Tmp_V.row(0).maxCoeff()) / 2;
+	float y_off = - (Tmp_V.row(1).minCoeff() + Tmp_V.row(1).maxCoeff()) / 2;
+	float z_off = - (Tmp_V.row(2).minCoeff() + Tmp_V.row(2).maxCoeff()) / 2;
+	float x_len = Tmp_V.row(0).maxCoeff() - Tmp_V.row(0).minCoeff();
+	float y_len = Tmp_V.row(1).maxCoeff() - Tmp_V.row(1).minCoeff();
+	float z_len = Tmp_V.row(2).maxCoeff() - Tmp_V.row(2).minCoeff();
+	if (scale < x_len) {
+		scale = x_len;
+	}
+	if (scale < y_len) {
+		scale = y_len;
+	}
+	if (scale < z_len) {
+		scale = z_len;
+	}
+	Eigen::Matrix4f* trans = new Eigen::Matrix4f; // transformation matrix
+	*trans = Eigen::Matrix4f::Identity(); // add identity
+	trans->col(3) << x_off, y_off, z_off, 1;
+	Eigen::Matrix4f scale_mtx = Eigen::Matrix4f::Identity() / scale; // add identity
+	scale_mtx(3,3) = 1;
+	*trans = scale_mtx * (*trans);
+	mtx_list.push_back(trans);
+	obj_tri_num.push_back(Tmp_F.cols());
+	off_num.push_back(off_num.back() + 3 * Tmp_F.cols());
+	obj_num++; // increment object count
+}
+
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
 	// Update the position of the first vertex if the keys 1,2, or 3 are pressed
 	if (action == GLFW_PRESS) {
@@ -156,156 +205,16 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 			}
 
 			case GLFW_KEY_2: {
-				Eigen::MatrixXf Tmp_V;
-				Eigen::MatrixXi Tmp_F;
-				load_off(DATA_DIR "bumpy_cube.off", Tmp_V, Tmp_F);
-				// add offset
-				Eigen::MatrixXi Offset;
-				Offset = Eigen::MatrixXi::Constant(Tmp_V.rows(), Tmp_V.cols(), bunny.V.cols());
-				Tmp_F = Tmp_F + Offset; 
-				long orig_V_cols = bunny.V.cols();
-				long orig_F_cols = bunny.F.cols();
-				bunny.V.conservativeResize(bunny.V.rows(), bunny.V.cols() + Tmp_V.cols()); // resize for cube
-				for (int j = 0; j < Tmp_V.cols(); ++j) {
-					bunny.V.col(orig_V_cols + j) = Tmp_V.col(j);
-				} 
-				bunny.F.conservativeResize(bunny.F.rows(), bunny.F.cols() + Tmp_F.cols()); // resize for cube
-				for (int j = 0; j < Tmp_F.cols(); ++j) {
-					bunny.F.col(orig_F_cols + j) = Tmp_F.col(j);
-				} 
-				bunny.V_vbo.update(bunny.V);
-				bunny.F_vbo.update(bunny.F);
-				float scale = 0;
-				float x_off = - (Tmp_V.row(0).minCoeff() + Tmp_V.row(0).maxCoeff()) / 2;
-				float y_off = - (Tmp_V.row(1).minCoeff() + Tmp_V.row(1).maxCoeff()) / 2;
-				float z_off = - (Tmp_V.row(2).minCoeff() + Tmp_V.row(2).maxCoeff()) / 2;
-				float x_len = Tmp_V.row(0).maxCoeff() - Tmp_V.row(0).minCoeff();
-				float y_len = Tmp_V.row(1).maxCoeff() - Tmp_V.row(1).minCoeff();
-				float z_len = Tmp_V.row(2).maxCoeff() - Tmp_V.row(2).minCoeff();
-				if (scale < x_len) {
-					scale = x_len;
-				}
-				if (scale < y_len) {
-					scale = y_len;
-				}
-				if (scale < z_len) {
-					scale = z_len;
-				}
-				Eigen::Matrix4f* trans = new Eigen::Matrix4f; // transformation matrix
-				*trans = Eigen::Matrix4f::Identity(); // add identity
-				Eigen::Matrix4f scale_mtx = Eigen::Matrix4f::Identity() / scale; // add identity
-				scale_mtx(3,3) = 1;
-				trans->col(3) << x_off, y_off, z_off, 1;
-				std::cout << *trans << std::endl;
-				std::cout << scale_mtx << std::endl;
-				*trans = scale_mtx * (*trans);
-				std::cout << *trans << std::endl;
-				mtx_list.push_back(trans);
-				obj_tri_num.push_back(Tmp_F.cols());
-				off_num.push_back(off_num.back() + 3 * Tmp_F.cols());
-				obj_num++; // increment object count
+				std::string dir = "bumpy_cube.off";
+				add_off(dir);
 				break;
 			}
 
 
 			case GLFW_KEY_3: {
-				Eigen::MatrixXf Tmp_V;
-				Eigen::MatrixXi Tmp_F;
-				load_off(DATA_DIR "bunny.off", Tmp_V, Tmp_F);
-				// add offset
-				Eigen::MatrixXi Offset;
-				Offset = Eigen::MatrixXi::Constant(Tmp_V.rows(), Tmp_V.cols(), bunny.V.cols());
-				Tmp_F = Tmp_F + Offset; 
-				long orig_V_cols = bunny.V.cols();
-				long orig_F_cols = bunny.F.cols();
-				bunny.V.conservativeResize(bunny.V.rows(), bunny.V.cols() + Tmp_V.cols()); // resize for cube
-				for (int j = 0; j < Tmp_V.cols(); ++j) {
-					bunny.V.col(orig_V_cols + j) = Tmp_V.col(j);
-				} 
-				bunny.F.conservativeResize(bunny.F.rows(), bunny.F.cols() + Tmp_F.cols()); // resize for cube
-				for (int j = 0; j < Tmp_F.cols(); ++j) {
-					bunny.F.col(orig_F_cols + j) = Tmp_F.col(j);
-				} 
-				bunny.V_vbo.update(bunny.V);
-				bunny.F_vbo.update(bunny.F);
-				float scale = 0;
-				float x_off = - (Tmp_V.row(0).minCoeff() + Tmp_V.row(0).maxCoeff()) / 2;
-				float y_off = - (Tmp_V.row(1).minCoeff() + Tmp_V.row(1).maxCoeff()) / 2;
-				float z_off = - (Tmp_V.row(2).minCoeff() + Tmp_V.row(2).maxCoeff()) / 2;
-				float x_len = Tmp_V.row(0).maxCoeff() - Tmp_V.row(0).minCoeff();
-				float y_len = Tmp_V.row(1).maxCoeff() - Tmp_V.row(1).minCoeff();
-				float z_len = Tmp_V.row(2).maxCoeff() - Tmp_V.row(2).minCoeff();
-				if (scale < x_len) {
-					scale = x_len;
-				}
-				if (scale < y_len) {
-					scale = y_len;
-				}
-				if (scale < z_len) {
-					scale = z_len;
-				}
-				printf("scale: %f\n", scale);
-				Eigen::Matrix4f* trans = new Eigen::Matrix4f; // transformation matrix
-				*trans = Eigen::Matrix4f::Identity(); // add identity
-				Eigen::Matrix4f scale_mtx = Eigen::Matrix4f::Identity() / scale; // add identity
-				scale_mtx(3,3) = 1;
-				trans->col(3) << x_off, y_off, z_off, 1;
-				std::cout << *trans << std::endl;
-				std::cout << scale_mtx << std::endl;
-				*trans = scale_mtx * (*trans);
-				std::cout << *trans << std::endl;
-				mtx_list.push_back(trans);
-				obj_tri_num.push_back(Tmp_F.cols());
-				off_num.push_back(off_num.back() + 3 * Tmp_F.cols());
-				obj_num++; // increment object count
+				std::string dir = "bunny.off";
+				add_off(dir);
 				break;
-			// 	Eigen::MatrixXf Bunny_V;
-			// 	Eigen::MatrixXi Bunny_F;
-			// 	load_off(DATA_DIR "bunny.off", Bunny_V, Bunny_F);
-			// 	// add offset
-			// 	Eigen::MatrixXi Offset;
-			// 	Offset = Eigen::Matrix4i::Constant(bunny.V.cols());
-			// 	Bunny_F = Bunny_F + Offset; 
-			// 	long orig_V_cols = bunny.V.cols();
-			// 	long orig_F_cols = bunny.F.cols();
-			// 	bunny.V.conservativeResize(bunny.V.rows(), bunny.V.cols() + Bunny_V.cols()); // resize for cube
-			// 	for (int j = 0; j < Bunny_V.cols(); ++j) {
-			// 		bunny.V.col(orig_V_cols + j) = Bunny_V.col(j);
-			// 	} 
-			// 	bunny.F.conservativeResize(bunny.F.rows(), bunny.F.cols() + Bunny_F.cols()); // resize for cube
-			// 	for (int j = 0; j < Bunny_F.cols(); ++j) {
-			// 		bunny.F.col(orig_F_cols + j) = Bunny_F.col(j);
-			// 	} 
-			// 	bunny.V_vbo.update(bunny.V);
-			// 	bunny.F_vbo.update(bunny.F);
-			// 	float scale = 0;
-			// 	float x_off = (Bunny_V.row(0).minCoeff() - Bunny_V.row(0).maxCoeff()) / 2;
-			// 	if (-x_off > scale) {
-			// 		scale = - 1 / (2 * x_off);
-			// 	}
-			// 	float y_off = (Bunny_V.row(1).minCoeff() - Bunny_V.row(1).maxCoeff()) / 2;
-			// 	if (-y_off > scale) {
-			// 		scale = - 1 / (2 * y_off);
-			// 	}
-			// 	float z_off = (Bunny_V.row(2).minCoeff() - Bunny_V.row(2).maxCoeff()) / 2;
-			// 	if (-z_off > scale) {
-			// 		scale = - 1 / (2 * z_off);
-			// 	}
-
-			// 	Eigen::Matrix4f* trans = new Eigen::Matrix4f; // transformation matrix
-			// 	*trans = Eigen::Matrix4f::Identity(); // add identity
-			// 	Eigen::Matrix4f scale_mtx = Eigen::Matrix4f::Identity() * scale; // add identity
-			// 	scale_mtx(3,3) = 1;
-			// 	trans->col(3) << x_off, y_off, z_off, 1;
-			// 	std::cout << *trans << std::endl;
-			// 	*trans = scale_mtx * (*trans);
-			// 	std::cout << *trans << std::endl;
-			// 	mtx_list.push_back(trans);
-			// 	obj_tri_num.push_back(Bunny_F.cols());
-			// 	off_num.push_back(off_num.back() + 3 * Bunny_F.cols());
-			// 	obj_num++; // increment object count
-
-			// 	break;
 			}
 
 			case GLFW_KEY_4: {
@@ -505,10 +414,11 @@ int main(void) {
 				// for (int j = 0; j < obj_tri_num[i]; ++j) {
 				// 	glDrawArrays(GL_TRIANGLES, off_num[i] + 3*j, 3);
 				// }
-				// glDrawElements(GL_TRIANGLES, 3 * obj_tri_num[i], bunny.F_vbo.scalar_type, NULL);
-				glDrawElements(GL_TRIANGLES, 10000,bunny.F_vbo.scalar_type, NULL);
+				// for (int j = 0; j < obj_tri_num[i]; ++j) {
+				// 	glDrawArrays(GL_TRIANGLES, off_num[i] + 3 * j, 3);
+				// }
+				glDrawElements(GL_LINE_LOOP, off_num[i+1], bunny.F_vbo.scalar_type, NULL);
 			}
-			// glDrawArrays(GL_TRIANGLES, 0, bunny.V.cols());
 			// for (int i = 0; i < bunny.F.cols()/3; ++i) {
 				// glDrawArrays(GL_LINE_LOOP, i * 3, 3);
 			// }
