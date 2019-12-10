@@ -18,6 +18,12 @@
 int obj_num = 0; // track obj number
  
 
+enum MODE {
+	WIREFRAME = 0,
+	FLAT,
+	PHONG,
+};
+
 void cube_init(Eigen::MatrixXf &cube_V) {
 	// init Vertex
 	cube_V.resize(36, 3);
@@ -79,11 +85,12 @@ void cube_init(Eigen::MatrixXf &cube_V) {
 struct Mesh {
 	Eigen::MatrixXf V; // mesh vertices [3 x n]
 
-	Eigen::MatrixXf T; // mesh trasformation matrix [4 x j]
-	Eigen::VectorXi TI; // mesh transformation index
+	Eigen::MatrixXf N; // mesh trasformation matrix [4 x j]
+	Eigen::VectorXf NV; // mesh transformation index
 	std::vector<Eigen::Matrix4f *> mtx_list; // track transform mtx
 	std::vector<int> obj_v_num;  // track how many triangle per obj 
 	std::vector<int> off_num = {0};  // track offset
+	MODE mode = WIREFRAME; // display mode
 
 	// VBO storing vertex position attributes
 	VertexBufferObject V_vbo;
@@ -200,6 +207,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	// Update the position of the first vertex if the keys 1,2, or 3 are pressed
 	if (action == GLFW_PRESS) {
 	switch (key) {
+
 			case GLFW_KEY_1: {// add cube
 				Eigen::MatrixXf cube_V;
 				cube_init(cube_V);
@@ -244,6 +252,24 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 				break;
 			}
 
+			case GLFW_KEY_Q: {
+
+				bunny.mode = WIREFRAME;
+				break;
+			}
+
+			case GLFW_KEY_W: {
+
+				bunny.mode = FLAT;
+				break;
+			}
+
+			case GLFW_KEY_E: {
+
+				bunny.mode = PHONG;
+				break;
+			}
+
 			case GLFW_KEY_P: {
 				printf("rows: %ld\n", bunny.V.cols());
 				printf("obj_count: %d\n", obj_num);
@@ -257,6 +283,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 				std::cout << std::endl;
 				for (int i = 0; i < bunny.mtx_list.size(); ++i)
 					std::cout << *(bunny.mtx_list[i]) << "\n" << std::endl;
+				printf("mode %d\n", bunny.mode);
 			}
 			default:
 				break;
@@ -322,8 +349,15 @@ int main(void) {
 		uniform mat4 proj;
 
 		in vec3 position;
+		in vec3 N;
+		in vec3 NV;
+
+		out vec3 N_v;
+		out vec3 NV_v;
 
 		void main() {
+			N_v = N;
+			NV_v = NV;
 			gl_Position = proj * view * model * vec4(position, 1.0);
 		}
 	)";
@@ -332,10 +366,26 @@ int main(void) {
 		#version 150 core
 
 		uniform vec3 triangleColor;
+		uniform vec3 light_pos;
+		uniform int mode;
+
+		in vec3 N_v;
+		in vec3 NV_v;
 		out vec4 outColor;
 
 		void main() {
-			outColor = vec4(triangleColor, 1.0);
+			if (mode == 0) {
+				outColor = vec4(triangleColor, 1.0);
+			} else if (mode == 1) {
+				// use N_v for FLAT SHADING
+				outColor = vec4(0.0, 1.0, 0.0, 1.0);
+			} else if (mode == 2) {
+				// use NV_v for PHONG SHADING
+				outColor = vec4(1.0, 0.0, 0.0, 1.0);
+			} else {
+				// should not reach here
+				outColor = vec4(1.0, 1.0, 1.0, 1.0);
+			}
 		}
 	)";
 
@@ -354,6 +404,17 @@ int main(void) {
 		bunny.V.resize(3, 0);
 
 		bunny.V_vbo.update(bunny.V);
+
+		// flat normal
+		bunny.N_vbo.init(GL_FLOAT, GL_ARRAY_BUFFER);
+		bunny.N.resize(3, 0);
+		bunny.N_vbo.update(bunny.N);
+
+		// vertex normal
+		bunny.NV_vbo.init(GL_FLOAT, GL_ARRAY_BUFFER);
+		bunny.NV.resize(3, 0);
+		bunny.NV_vbo.update(bunny.NV);
+
 		// Create a new VAO for the bunny. and bind it
 		bunny.vao.init();
 		bunny.vao.bind();
@@ -364,6 +425,8 @@ int main(void) {
 		// The following line connects the VBO we defined above with the position "slot"
 		// in the vertex shader
 		program.bindVertexAttribArray("position", bunny.V_vbo);
+		program.bindVertexAttribArray("N", bunny.N_vbo);
+		program.bindVertexAttribArray("NV", bunny.NV_vbo);
 
 		// Unbind the VAO when I am done
 		bunny.vao.unbind();
@@ -375,7 +438,8 @@ int main(void) {
 	program.bind();
 	glUniformMatrix4fv(program.uniform("view"), 1, GL_FALSE, I.data());
 	glUniformMatrix4fv(program.uniform("proj"), 1, GL_FALSE, I.data());
-
+	glUniform1i(program.uniform("mode"), bunny.mode); // bind mode
+	glUniform3f(program.uniform("light_pos"), 1, -1, 1); // add light source
 	// Save the current time --- it will be used to dynamically change the triangle color
 	auto t_start = std::chrono::high_resolution_clock::now();
 
@@ -406,16 +470,50 @@ int main(void) {
 			// Model matrix for the bunny
 
 			// Set the uniform value depending on the time difference
-			auto t_now = std::chrono::high_resolution_clock::now();
-			float time = std::chrono::duration_cast<std::chrono::duration<float>>(t_now - t_start).count();
-			glUniform3f(program.uniform("triangleColor"), (float)(sin(time * 4.0f) + 1.0f) / 2.0f, 0.0f, 0.0f);
+			glUniform3f(program.uniform("triangleColor"), 0.0f, 0.0f, 0.0f);
 
 			// Draw the triangles
-			for (int i = 0; i < obj_num; ++i) {
-				glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, bunny.mtx_list[i]->data());
-				for (int j = 0; j < bunny.obj_v_num[i]; j+=3) {
-					glDrawArrays(GL_LINE_LOOP, bunny.off_num[i] + j, 3);
+			switch (bunny.mode) {
+				case WIREFRAME: {
+					glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+					glClear(GL_COLOR_BUFFER_BIT);
+					for (int i = 0; i < obj_num; ++i) {
+						glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, bunny.mtx_list[i]->data());
+						glUniform1i(program.uniform("mode"), bunny.mode); // bind mode
+						for (int j = 0; j < bunny.obj_v_num[i]; j+=3) {
+							glDrawArrays(GL_LINE_LOOP, bunny.off_num[i] + j, 3);
+						}
+					}
+					break;
 				}
+
+				case FLAT: {
+					glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+					glClear(GL_COLOR_BUFFER_BIT);
+					for (int i = 0; i < obj_num; ++i) {
+						glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, bunny.mtx_list[i]->data());
+						glUniform1i(program.uniform("mode"), bunny.mode); // bind mode
+						for (int j = 0; j < bunny.obj_v_num[i]; j+=3) {
+							glDrawArrays(GL_TRIANGLES, bunny.off_num[i] + j, 3);
+							glDrawArrays(GL_LINE_LOOP, bunny.off_num[i] + j, 3);
+						}
+					}
+					break;
+				}
+
+				case PHONG: {
+					glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+					glClear(GL_COLOR_BUFFER_BIT);
+					for (int i = 0; i < obj_num; ++i) {
+						glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, bunny.mtx_list[i]->data());
+						glUniform1i(program.uniform("mode"), bunny.mode); // bind mode
+						for (int j = 0; j < bunny.obj_v_num[i]; j+=3) {
+							glDrawArrays(GL_TRIANGLES, bunny.off_num[i] + j, 3);
+						}
+					}
+					break;
+				
+				}	
 			}
 		}
 
