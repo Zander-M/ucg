@@ -16,39 +16,59 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 int obj_num = 0; // track obj number
-std::vector<Eigen::Matrix4f *> mtx_list; // track transform mtx
-std::vector<int> obj_tri_num;  // track how many triangle per obj 
-std::vector<int> off_num = {0};  // track offset 
+ 
 
-void cube_init(Eigen::MatrixXf &cube_V, Eigen::MatrixXi &cube_F, int len) {
+void cube_init(Eigen::MatrixXf &cube_V) {
 	// init Vertex
-	cube_V.resize(8, 3);
-	cube_F.resize(12, 3);
-	// vertex coord
+	cube_V.resize(36, 3);
 	cube_V << -0.5, -0.5, -0.5,
-			    0.5, -0.5, -0.5,
-			    0.5,  0.5, -0.5,
-			   -0.5,  0.5, -0.5,
-			   -0.5, -0.5,  0.5,
-			    0.5, -0.5,  0.5,
-			    0.5,  0.5,  0.5,
-			   -0.5,  0.5,  0.5;
+			  -0.5, -0.5,  0.5,
+			   0.5, -0.5,  0.5,
 
-	// vertex index
-	cube_F <<  0 + len, 1 + len, 2 + len,
-			   0 + len, 3 + len, 2 + len,
-			   0 + len, 1 + len, 5 + len, 
-			   0 + len, 4 + len, 5 + len,
-			   0 + len, 3 + len, 7 + len,
-			   0 + len, 4 + len, 7 + len,
-			   6 + len, 5 + len, 1 + len,
-			   6 + len, 2 + len, 1 + len,
-			   6 + len, 5 + len, 4 + len,
-			   6 + len, 7 + len, 4 + len,
-			   6 + len, 2 + len, 3 + len,
-			   6 + len, 7 + len, 3 + len;
+			  -0.5, -0.5, -0.5,
+			   0.5, -0.5,  0.5,
+			   0.5, -0.5, -0.5,
+
+			  -0.5, -0.5, -0.5,
+			  -0.5,  0.5, -0.5,
+			   0.5,  0.5, -0.5,
+
+			  -0.5, -0.5, -0.5,
+			   0.5,  0.5, -0.5,
+			   0.5, -0.5, -0.5,
+
+			  -0.5, -0.5, -0.5,
+			  -0.5,  0.5, -0.5,
+			  -0.5,  0.5,  0.5,
+
+			  -0.5, -0.5, -0.5,
+			  -0.5,  0.5,  0.5,
+			  -0.5, -0.5,  0.5,
+
+			   0.5,  0.5,  0.5,
+			   0.5, -0.5, -0.5,
+			   0.5, -0.5,  0.5,
+
+			   0.5,  0.5,  0.5,
+			   0.5,  0.5, -0.5,
+			   0.5, -0.5, -0.5,
+
+			   0.5,  0.5,  0.5,
+			   0.5, -0.5,  0.5,
+			  -0.5, -0.5,  0.5,
+
+			   0.5,  0.5,  0.5,
+			  -0.5, -0.5,  0.5,
+			  -0.5,  0.5,  0.5,
+
+			   0.5,  0.5,  0.5,
+			  -0.5,  0.5,  0.5,
+			  -0.5,  0.5, -0.5,
+
+			   0.5,  0.5,  0.5,
+			  -0.5,  0.5, -0.5,
+			   0.5,  0.5, -0.5;
 	cube_V.transposeInPlace();
-	cube_F.transposeInPlace();
 }
 
 
@@ -58,19 +78,21 @@ void cube_init(Eigen::MatrixXf &cube_V, Eigen::MatrixXi &cube_F, int len) {
 // Mesh object, with both CPU data (Eigen::Matrix) and GPU data (the VBOs)
 struct Mesh {
 	Eigen::MatrixXf V; // mesh vertices [3 x n]
-	Eigen::MatrixXi F; // mesh triangles [3 x m]
+
 	Eigen::MatrixXf T; // mesh trasformation matrix [4 x j]
 	Eigen::VectorXi TI; // mesh transformation index
+	std::vector<Eigen::Matrix4f *> mtx_list; // track transform mtx
+	std::vector<int> obj_v_num;  // track how many triangle per obj 
+	std::vector<int> off_num = {0};  // track offset
 
 	// VBO storing vertex position attributes
 	VertexBufferObject V_vbo;
 
-	// VBO storing vertex indices (element buffer)
-	VertexBufferObject F_vbo;
+	// VBO storing normals
+	VertexBufferObject N_vbo;
 
-	// VCO storing transformations
-
-	// VCO storing transformation index buffer
+	// VBO storing normals of vertices
+	VertexBufferObject NV_vbo;
 
 	// VAO storing the layout of the shader program for the object 'bunny'
 	VertexArrayObject vao;
@@ -81,21 +103,29 @@ Mesh bunny;
 ////////////////////////////////////////////////////////////////////////////////
 
 // Read a triangle mesh from an off file
-void load_off(const std::string &filename, Eigen::MatrixXf &V, Eigen::MatrixXi &F) {
+void load_off(const std::string &filename, Eigen::MatrixXf &V) {
 	std::ifstream in(filename);
 	std::string token;
+	Eigen::MatrixXf tmpV;
+	Eigen::MatrixXi tmpF;
 	in >> token;
 	int nv, nf, ne;
 	in >> nv >> nf >> ne;
-	V.resize(3, nv);
-	F.resize(3, nf);
+	tmpV.resize(3, nv);
+	tmpF.resize(3, nf);
+	V.resize(3, nf * 3);
 	for (int i = 0; i < nv; ++i) {
-		in >> V(0, i) >> V(1, i) >> V(2, i);
+		in >> tmpV(0, i) >> tmpV(1, i) >> tmpV(2, i);
 	}
 	for (int i = 0; i < nf; ++i) {
 		int s;
-		in >> s >> F(0, i) >> F(1, i) >> F(2, i);
+		in >> s >> tmpF(0, i) >> tmpF(1, i) >> tmpF(2, i);
 		assert(s == 3);
+	}
+	for (int i = 0; i < nf; ++i) {
+		V.col(3 * i) = tmpV.col(tmpF(0, i));
+		V.col(3 * i + 1) = tmpV.col(tmpF(1, i));
+		V.col(3 * i + 2) = tmpV.col(tmpF(2, i));
 	}
 }
 
@@ -128,25 +158,16 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 
 void add_off(std::string dir) {
 	Eigen::MatrixXf Tmp_V;
-	Eigen::MatrixXi Tmp_F;
 	std::string full_dir = DATA_DIR + dir;
-	load_off(full_dir , Tmp_V, Tmp_F);
+	load_off(full_dir , Tmp_V);
 	// add offset
-	Eigen::MatrixXi Offset;
-	Offset = Eigen::MatrixXi::Constant(Tmp_F.rows(), Tmp_F.cols(), bunny.V.cols());
-	Tmp_F = Tmp_F + Offset; 
 	long orig_V_cols = bunny.V.cols();
-	long orig_F_cols = bunny.F.cols();
 	bunny.V.conservativeResize(bunny.V.rows(), bunny.V.cols() + Tmp_V.cols()); // resize for cube
 	for (int j = 0; j < Tmp_V.cols(); ++j) {
 		bunny.V.col(orig_V_cols + j) = Tmp_V.col(j);
 	} 
-	bunny.F.conservativeResize(bunny.F.rows(), bunny.F.cols() + Tmp_F.cols()); // resize for cube
-	for (int j = 0; j < Tmp_F.cols(); ++j) {
-		bunny.F.col(orig_F_cols + j) = Tmp_F.col(j);
-	} 
+
 	bunny.V_vbo.update(bunny.V);
-	bunny.F_vbo.update(bunny.F);
 	float scale = 0;
 	float x_off = - (Tmp_V.row(0).minCoeff() + Tmp_V.row(0).maxCoeff()) / 2;
 	float y_off = - (Tmp_V.row(1).minCoeff() + Tmp_V.row(1).maxCoeff()) / 2;
@@ -169,9 +190,9 @@ void add_off(std::string dir) {
 	Eigen::Matrix4f scale_mtx = Eigen::Matrix4f::Identity() / scale; // add identity
 	scale_mtx(3,3) = 1;
 	*trans = scale_mtx * (*trans);
-	mtx_list.push_back(trans);
-	obj_tri_num.push_back(Tmp_F.cols());
-	off_num.push_back(off_num.back() + 3 * Tmp_F.cols());
+	bunny.mtx_list.push_back(trans);
+	bunny.obj_v_num.push_back(Tmp_V.cols());
+	bunny.off_num.push_back(bunny.off_num.back() + Tmp_V.cols());
 	obj_num++; // increment object count
 }
 
@@ -181,25 +202,18 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	switch (key) {
 			case GLFW_KEY_1: {// add cube
 				Eigen::MatrixXf cube_V;
-				Eigen::MatrixXi cube_F;
-				cube_init(cube_V, cube_F, bunny.V.cols());
+				cube_init(cube_V);
 				long orig_V_cols = bunny.V.cols();
-				long orig_F_cols = bunny.F.cols();
-				bunny.V.conservativeResize(bunny.V.rows(), bunny.V.cols() + 8); // resize for cube
-				for (int j = 0; j < 8; ++j) {
+				bunny.V.conservativeResize(bunny.V.rows(), bunny.V.cols() + cube_V.cols()); // resize for cube
+				for (int j = 0; j < cube_V.cols(); ++j) {
 					bunny.V.col(orig_V_cols + j) = cube_V.col(j);
 				} 
-				bunny.F.conservativeResize(bunny.F.rows(), bunny.F.cols() + 12); // resize for cube
-				for (int j = 0; j < 12; ++j) {
-					bunny.F.col(orig_F_cols + j) = cube_F.col(j);
-				} 
 				bunny.V_vbo.update(bunny.V);
-				bunny.F_vbo.update(bunny.F);
 				Eigen::Matrix4f* trans = new Eigen::Matrix4f; // transformation matrix
 				*trans = Eigen::Matrix4f::Identity(); // add identity
-				mtx_list.push_back(trans);
-				obj_tri_num.push_back(cube_F.cols());
-				off_num.push_back(off_num.back() + 3 * cube_F.cols());
+				bunny.mtx_list.push_back(trans);
+				bunny.obj_v_num.push_back(cube_V.cols());
+				bunny.off_num.push_back(bunny.off_num.back() + cube_V.cols());
 				obj_num++; // increment object count
 				break;
 			}
@@ -219,15 +233,13 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 
 			case GLFW_KEY_4: {
 				bunny.V.resize(3, 0);
-				bunny.F.resize(3, 0);
 				bunny.V_vbo.update(bunny.V);
-				bunny.F_vbo.update(bunny.F);
 				for (int i = 0; i < obj_num; ++i) {
-					delete mtx_list[i];
+					delete bunny.mtx_list[i];
 				}
-				mtx_list.clear();
-				obj_tri_num.clear();
-				off_num = {0};
+				bunny.mtx_list.clear();
+				bunny.obj_v_num.clear();
+				bunny.off_num = {0};
 				obj_num = 0; // reset 
 				break;
 			}
@@ -236,13 +248,15 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 				printf("rows: %ld\n", bunny.V.cols());
 				printf("obj_count: %d\n", obj_num);
 				std::cout << "Offset:" << std::endl;
-				for (int i = 0; i < off_num.size(); ++i)
-					std::cout << off_num[i] << " ";
+				for (int i = 0; i < bunny.off_num.size(); ++i)
+					std::cout << bunny.off_num[i] << " ";
 				std::cout << std::endl;
-				std::cout << "Tri num:" << std::endl;
-				for (int i = 0; i < obj_tri_num.size(); ++i)
-					std::cout << obj_tri_num[i] << " ";
+				std::cout << "Vertex num:" << std::endl;
+				for (int i = 0; i < bunny.obj_v_num.size(); ++i)
+					std::cout << bunny.obj_v_num[i] << " ";
 				std::cout << std::endl;
+				for (int i = 0; i < bunny.mtx_list.size(); ++i)
+					std::cout << *(bunny.mtx_list[i]) << "\n" << std::endl;
 			}
 			default:
 				break;
@@ -336,27 +350,15 @@ int main(void) {
 	{
 		// Initialize the VBOs
 		bunny.V_vbo.init(GL_FLOAT, GL_ARRAY_BUFFER);
-		bunny.F_vbo.init(GL_UNSIGNED_INT, GL_ELEMENT_ARRAY_BUFFER);
-
 		// Vertex positions
 		bunny.V.resize(3, 0);
-		// bunny.V <<
-		// 	0, 0.5, -0.5,
-		// 	0.5, -0.5, -0.5,
-		// 	0, 0, 0;
+
 		bunny.V_vbo.update(bunny.V);
-
-		// Triangle indices
-		bunny.F.resize(3, 0);
-		// bunny.F << 0, 1, 2;
-		bunny.F_vbo.update(bunny.F);
-
 		// Create a new VAO for the bunny. and bind it
 		bunny.vao.init();
 		bunny.vao.bind();
 
 		// Bind the element buffer, this information will be stored in the current VAO
-		bunny.F_vbo.bind();
 
 		// The vertex shader wants the position of the vertices as an input.
 		// The following line connects the VBO we defined above with the position "slot"
@@ -410,18 +412,11 @@ int main(void) {
 
 			// Draw the triangles
 			for (int i = 0; i < obj_num; ++i) {
-				glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, mtx_list[i]->data());
-				// for (int j = 0; j < obj_tri_num[i]; ++j) {
-				// 	glDrawArrays(GL_TRIANGLES, off_num[i] + 3*j, 3);
-				// }
-				// for (int j = 0; j < obj_tri_num[i]; ++j) {
-				// 	glDrawArrays(GL_TRIANGLES, off_num[i] + 3 * j, 3);
-				// }
-				glDrawElements(GL_LINE_LOOP, off_num[i+1], bunny.F_vbo.scalar_type, NULL);
+				glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, bunny.mtx_list[i]->data());
+				for (int j = 0; j < bunny.obj_v_num[i]; j+=3) {
+					glDrawArrays(GL_LINE_LOOP, bunny.off_num[i] + j, 3);
+				}
 			}
-			// for (int i = 0; i < bunny.F.cols()/3; ++i) {
-				// glDrawArrays(GL_LINE_LOOP, i * 3, 3);
-			// }
 		}
 
 		// Swap front and back buffers
@@ -435,7 +430,6 @@ int main(void) {
 	program.free();
 	bunny.vao.free();
 	bunny.V_vbo.free();
-	bunny.F_vbo.free();
 
 	// Deallocate glfw internals
 	glfwTerminate();
