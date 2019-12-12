@@ -1,0 +1,3 @@
+C:/Users/sherl/source/repos/Zander-M/ucg/ext/glad/out/build/x64-Debug/CMakeFiles/glad.dir
+C:/Users/sherl/source/repos/Zander-M/ucg/ext/glad/out/build/x64-Debug/CMakeFiles/edit_cache.dir
+C:/Users/sherl/source/repos/Zander-M/ucg/ext/glad/out/build/x64-Debug/CMakeFiles/rebuild_cache.dir
