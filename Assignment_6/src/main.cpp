@@ -90,7 +90,7 @@ struct Mesh {
 	Eigen::MatrixXf N; // mesh trasformation matrix [4 x j]
 	Eigen::MatrixXf NV; // mesh transformation index
 	std::vector<Eigen::Matrix4f*> mtx_list; // track transform mtx
-	std::vector<int> obj_v_num;  // track how many triangle per obj 
+	std::vector<int> obj_v_num;  // track how many vertex per obj 
 	std::vector<int> off_num = { 0 };  // track offset
 	std::vector<int> obj_select; // track whether selected
 	MODE mode = WIREFRAME; // display mode
@@ -186,27 +186,54 @@ void load_off(const std::string& filename, Eigen::MatrixXf& V) {
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
 	// Get viewport size (canvas in number of pixels)
-	int width, height;
-	glfwGetFramebufferSize(window, &width, &height);
+	if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+		int width, height;
+		glfwGetFramebufferSize(window, &width, &height);
 
-	// Get the size of the window (may be different than the canvas size on retina displays)
-	int width_window, height_window;
-	glfwGetWindowSize(window, &width_window, &height_window);
+		// Get the size of the window (may be different than the canvas size on retina displays)
+		int width_window, height_window;
+		glfwGetWindowSize(window, &width_window, &height_window);
 
-	// Get the position of the mouse in the window
-	double xpos, ypos;
-	glfwGetCursorPos(window, &xpos, &ypos);
+		// Get the position of the mouse in the window
+		double xpos, ypos;
+		glfwGetCursorPos(window, &xpos, &ypos);
 
-	// Deduce position of the mouse in the viewport
-	double highdpi = (double)width / (double)width_window;
-	xpos *= highdpi;
-	ypos *= highdpi;
+		// Deduce position of the mouse in the viewport
+		double highdpi = (double)width / (double)width_window;
+		xpos *= highdpi;
+		ypos *= highdpi;
 
-	// Convert screen position to the canonical viewing volume
-	double xcanonical = ((xpos / double(width)) * 2) - 1;
-	double ycanonical = (((height - 1 - ypos) / double(height)) * 2) - 1; // NOTE: y axis is flipped in glfw
+		// Convert screen position to the canonical viewing volume
+		double xcanonical = ((xpos / double(width)) * 2) - 1;
+		double ycanonical = (((height - 1 - ypos) / double(height)) * 2) - 1; // NOTE: y axis is flipped in glfw
 
-	// TODO: Ray-casting for object selection (Ex.3)
+		// TODO: Ray-casting for object selection (Ex.3)
+		for (int i = 0; i < obj_num; ++i) {
+			bunny.obj_select[i] = 0;
+		}
+		for (int i = 0; i < obj_num; ++i) {
+			for (int v = 0; v < bunny.obj_v_num[i]; v += 3) {
+				Eigen::Vector4f a, b, orig;
+				Eigen::Vector2f v1, v2, c;
+				Eigen::Matrix2f M;
+				orig << bunny.V.col(bunny.off_num[i] + v), 1;
+				a << bunny.V.col(bunny.off_num[i] + v + 1), 1;
+				b << bunny.V.col(bunny.off_num[i] + v + 2), 1;
+				a = *bunny.mtx_list[i] * a;
+				b = *bunny.mtx_list[i] * b;
+				orig = *bunny.mtx_list[i] * orig;
+				v1 << (a - orig) (0), (a - orig)(1);
+				v2 << (b - orig) (0), (b - orig)(1);
+				c = Eigen::Vector2f(xcanonical, ycanonical) - Eigen::Vector2f(orig(0), orig(1));
+				M << v1(0), v2(0), v1(1), v2(1);
+				Eigen::Vector2f sol = M.colPivHouseholderQr().solve(c);
+				if (0 < sol(0) && sol(0) < 1 && 0 < sol(1) && sol(1) < 1 && sol(0) + sol(1) <= 1) {
+					bunny.obj_select[i] = 1;
+					break;
+				}
+			}
+		}
+	}
 }
 
 void add_off(std::string dir) {
@@ -554,6 +581,13 @@ int main(void) {
 				glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 				for (int i = 0; i < obj_num; ++i) {
+					if (bunny.obj_select[i] == 0) {
+						glUniform3f(program.uniform("triangleColor"), 0.0f, 0.0f, 0.0f);
+					}
+					else {
+						glUniform3f(program.uniform("triangleColor"), 1.0f, 0.0f, 0.0f); // red
+					}
+					glUniform1i(program.uniform("select"), bunny.obj_select[i]);
 					glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, bunny.mtx_list[i]->data());
 					glUniform1i(program.uniform("mode"), bunny.mode); // bind mode
 					for (int j = 0; j < bunny.obj_v_num[i]; j += 3) {
