@@ -13,10 +13,12 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#define M_PI 3.1415926535897
+
 ////////////////////////////////////////////////////////////////////////////////
 
 int obj_num = 0; // track obj number
-
+Eigen::Matrix4f view;
 
 enum MODE {
 	WIREFRAME = 0,
@@ -90,6 +92,8 @@ struct Mesh {
 	Eigen::MatrixXf N; // mesh trasformation matrix [4 x j]
 	Eigen::MatrixXf NV; // mesh transformation index
 	std::vector<Eigen::Matrix4f*> mtx_list; // track transform mtx
+	std::vector<Eigen::Matrix4f*> trans_mtx_list; // track transform mtx
+	std::vector<MODE> shading_mode;
 	std::vector<int> obj_v_num;  // track how many vertex per obj 
 	std::vector<int> off_num = { 0 };  // track offset
 	std::vector<int> obj_select; // track whether selected
@@ -219,9 +223,9 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 				orig << bunny.V.col(bunny.off_num[i] + v), 1;
 				a << bunny.V.col(bunny.off_num[i] + v + 1), 1;
 				b << bunny.V.col(bunny.off_num[i] + v + 2), 1;
-				a = *bunny.mtx_list[i] * a;
-				b = *bunny.mtx_list[i] * b;
-				orig = *bunny.mtx_list[i] * orig;
+				a = (*bunny.trans_mtx_list[i]) * (*bunny.mtx_list[i]) * a;
+				b = (*bunny.trans_mtx_list[i]) * (*bunny.mtx_list[i]) * b;
+				orig = (*bunny.trans_mtx_list[i]) * (*bunny.mtx_list[i]) * orig;
 				v1 << (a - orig) (0), (a - orig)(1);
 				v2 << (b - orig) (0), (b - orig)(1);
 				c = Eigen::Vector2f(xcanonical, ycanonical) - Eigen::Vector2f(orig(0), orig(1));
@@ -268,15 +272,56 @@ void add_off(std::string dir) {
 	}
 	Eigen::Matrix4f* trans = new Eigen::Matrix4f; // transformation matrix
 	*trans = Eigen::Matrix4f::Identity(); // add identity
+	(*trans)(2, 2) = -1;
 	trans->col(3) << x_off, y_off, z_off, 1;
 	Eigen::Matrix4f scale_mtx = Eigen::Matrix4f::Identity() / scale; // add identity
 	scale_mtx(3, 3) = 1;
+	Eigen::Matrix4f* mtx_trans = new Eigen::Matrix4f; // transformation matrix
 	*trans = scale_mtx * (*trans);
+	*mtx_trans = Eigen::Matrix4f::Identity();
 	bunny.mtx_list.push_back(trans);
+	bunny.trans_mtx_list.push_back(mtx_trans);
+	bunny.shading_mode.push_back(WIREFRAME);
 	bunny.obj_v_num.push_back(Tmp_V.cols());
 	bunny.off_num.push_back(bunny.off_num.back() + Tmp_V.cols());
 	bunny.obj_select.push_back(0); // not selected
 	obj_num++; // increment object count
+}
+
+void obj2orig(int i, Eigen::Matrix4f& trans) {
+	trans = Eigen::Matrix4f::Identity();
+	float x_min, x_max, y_min, y_max, z_min, z_max, x_off, y_off, z_off;
+	x_min = y_min = z_min = 2;
+	x_max = y_max = z_max = -2;
+	for (int j = 0; j < bunny.obj_v_num[i]; ++j) {
+		Eigen::Vector4f new_v;
+		new_v << bunny.V.col(bunny.off_num[i] + j), 1;
+		Eigen::Vector4f new_pos = (*bunny.trans_mtx_list[i]) * (*bunny.mtx_list[i]) * new_v;
+		if (x_min > new_pos(0)) {
+			x_min = new_pos(0);
+		}
+		if (x_max < new_pos(0)) {
+			x_max = new_pos(0);
+		}
+		if (y_min > new_pos(1)) {
+			y_min = new_pos(1);
+		}
+		if (y_max < new_pos(1)) {
+			y_max = new_pos(1);
+		}
+		if (z_min > new_pos(2)) {
+			z_min = new_pos(2);
+		}
+		if (z_max < new_pos(2)) {
+			z_max = new_pos(2);
+		}
+		x_off = -(x_min + x_max) / 2;
+		y_off = -(y_min + y_max) / 2;
+		z_off = -(z_min + z_max) / 2;
+	}
+	trans(0, 3) = x_off;
+	trans(1, 3) = y_off;
+	trans(2, 3) = z_off;
 }
 
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
@@ -313,9 +358,13 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 
 			Eigen::Matrix4f* trans = new Eigen::Matrix4f; // transformation matrix
 			*trans = Eigen::Matrix4f::Identity(); // add model 
+			Eigen::Matrix4f* mtx_trans = new Eigen::Matrix4f; // transformation matrix
+			*mtx_trans = Eigen::Matrix4f::Identity(); // add model 
 			bunny.mtx_list.push_back(trans);
+			bunny.trans_mtx_list.push_back(mtx_trans);
 			bunny.obj_v_num.push_back(cube_V.cols());
 			bunny.off_num.push_back(bunny.off_num.back() + cube_V.cols());
+			bunny.shading_mode.push_back(WIREFRAME);
 			bunny.obj_select.push_back(0); // not selected
 			obj_num++; // increment object count
 			break;
@@ -348,23 +397,154 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 		}
 
 		case GLFW_KEY_Q: {
-
-			bunny.mode = WIREFRAME;
+			for (int i = 0; i < obj_num; ++i) {
+				if (bunny.obj_select[i] == 1) {
+					bunny.shading_mode[i] = WIREFRAME;
+				}
+			}
 			break;
 		}
 
 		case GLFW_KEY_W: {
-
-			bunny.mode = FLAT;
+			for (int i = 0; i < obj_num; ++i) {
+				if (bunny.obj_select[i] == 1) {
+					bunny.shading_mode[i] = FLAT;
+				}
+			}
 			break;
 		}
 
 		case GLFW_KEY_E: {
-
-			bunny.mode = PHONG;
+			for (int i = 0; i < obj_num; ++i) {
+				if (bunny.obj_select[i] == 1) {
+					bunny.shading_mode[i] = PHONG;
+				}
+			}
 			break;
 		}
 
+		case GLFW_KEY_V: { // enlarge
+			for (int i = 0; i < obj_num; ++i) {
+				if (bunny.obj_select[i]) {
+					Eigen::Matrix4f trans;
+					obj2orig(i, trans);
+					Eigen::Matrix4f scale = Eigen::Matrix4f::Identity() * 1.2;
+					scale(3, 3) = 1;
+					*bunny.trans_mtx_list[i] = trans.inverse() * scale * trans * (*bunny.trans_mtx_list[i]);
+				}
+			}
+			break;
+		}
+
+		case GLFW_KEY_B: { // shrink
+			for (int i = 0; i < obj_num; ++i) {
+				if (bunny.obj_select[i]) {
+					Eigen::Matrix4f trans;
+					obj2orig(i, trans);
+					Eigen::Matrix4f scale = Eigen::Matrix4f::Identity() * 0.8;
+					scale(3, 3) = 1;
+					*bunny.trans_mtx_list[i] = trans.inverse() * scale * trans * (*bunny.trans_mtx_list[i]);
+				}
+			}
+			break;
+		}
+
+		case GLFW_KEY_I: {
+			for (int i = 0; i < obj_num; ++i) {
+				if (bunny.obj_select[i]) {
+					Eigen::Matrix4f trans;
+					obj2orig(i, trans);
+					Eigen::Matrix4f rotate;
+					rotate << 1, 0, 0, 0,
+						0, cos(-10. / 360. * 2 * M_PI), -sin(-10. / 360. * 2 * M_PI), 0,
+						0, sin(-10. / 360. * 2 * M_PI), cos(-10. / 360. * 2 * M_PI), 0,
+						0, 0, 0, 1;
+					*bunny.trans_mtx_list[i] = trans.inverse() * rotate * trans * (*bunny.trans_mtx_list[i]);
+				}
+			}
+			break;
+		}
+
+		case GLFW_KEY_O: {
+			for (int i = 0; i < obj_num; ++i) {
+				if (bunny.obj_select[i]) {
+					Eigen::Matrix4f trans;
+					obj2orig(i, trans);
+					Eigen::Matrix4f rotate;
+					rotate << 1, 0, 0, 0,
+						0, cos(10. / 360. * 2 * M_PI), -sin(10. / 360. * 2 * M_PI), 0,
+						0, sin(10. / 360. * 2 * M_PI), cos(10. / 360. * 2 * M_PI), 0,
+						0, 0, 0, 1;
+					*bunny.trans_mtx_list[i] = trans.inverse() * rotate * trans * (*bunny.trans_mtx_list[i]);
+				}
+			}
+			break;
+		}
+
+		case GLFW_KEY_H: {
+			for (int i = 0; i < obj_num; ++i) {
+				if (bunny.obj_select[i]) {
+					Eigen::Matrix4f trans;
+					obj2orig(i, trans);
+					Eigen::Matrix4f rotate;
+					rotate << cos(-10. / 360. * 2 * M_PI), 0, sin(-10. / 360. * 2 * M_PI), 0,
+						0, 1, 0, 0,
+						-sin(-10. / 360. * 2 * M_PI), 0, cos(-10. / 360. * 2 * M_PI), 0,
+						0, 0, 0, 1;
+					*bunny.trans_mtx_list[i] = trans.inverse() * rotate * trans * (*bunny.trans_mtx_list[i]);
+				}
+			}
+			break;
+		}
+
+		case GLFW_KEY_J: {
+			for (int i = 0; i < obj_num; ++i) {
+				if (bunny.obj_select[i]) {
+					Eigen::Matrix4f trans;
+					obj2orig(i, trans);
+					Eigen::Matrix4f rotate;
+					rotate << cos(10. / 360. * 2 * M_PI), 0, sin(10. / 360. * 2 * M_PI), 0,
+						0, 1, 0, 0,
+						-sin(10. / 360. * 2 * M_PI), 0, cos(10. / 360. * 2 * M_PI), 0,
+						0, 0, 0, 1;
+					*bunny.trans_mtx_list[i] = trans.inverse() * rotate * trans * (*bunny.trans_mtx_list[i]);
+				}
+			}
+			break;
+		}
+
+
+		case GLFW_KEY_K: {
+			for (int i = 0; i < obj_num; ++i) {
+				if (bunny.obj_select[i]) {
+					Eigen::Matrix4f trans;
+					obj2orig(i, trans);
+					Eigen::Matrix4f rotate;
+					rotate << cos(-10. / 360. * 2 * M_PI), sin(-10. / 360. * 2 * M_PI), 0, 0,
+						-sin(-10. / 360. * 2 * M_PI), cos(-10. / 360. * 2 * M_PI), 0, 0,
+						0, 0, 1, 0,
+						0, 0, 0, 1;
+					*bunny.trans_mtx_list[i] = trans.inverse() * rotate * trans * (*bunny.trans_mtx_list[i]);
+				}
+			}
+			break;
+		}
+
+		case GLFW_KEY_L: {
+			for (int i = 0; i < obj_num; ++i) {
+				if (bunny.obj_select[i]) {
+					Eigen::Matrix4f trans;
+					obj2orig(i, trans);
+					Eigen::Matrix4f rotate;
+					rotate << cos(10. / 360. * 2 * M_PI), sin(10. / 360. * 2 * M_PI), 0, 0,
+						-sin(10. / 360. * 2 * M_PI), cos(10. / 360. * 2 * M_PI), 0, 0,
+						0, 0, 1, 0,
+						0, 0, 0, 1;
+					*bunny.trans_mtx_list[i] = trans.inverse() * rotate * trans * (*bunny.trans_mtx_list[i]);
+				}
+			}
+			break;
+		}
 		case GLFW_KEY_P: {
 			printf("rows: %ld\n", bunny.V.cols());
 			printf("obj_count: %d\n", obj_num);
@@ -441,6 +621,7 @@ int main(void) {
 	const GLchar* vertex_shader = R"(
 		#version 150 core
 
+		uniform mat4 trans_mtx;
 		uniform mat4 model;
 		uniform mat4 view;
 		uniform mat4 proj;
@@ -454,9 +635,9 @@ int main(void) {
 		out vec3 frag_pos;
 
 		void main() {
-			N_v  = normalize(vec3(transpose(inverse(model)) * vec4(N, 1))); 
-			NV_v  = normalize(vec3(transpose(inverse(model)) * vec4(NV, 1))); 
-			gl_Position = proj * view * model * vec4(position, 1.0);
+			N_v  = normalize(vec3(transpose(inverse(trans_mtx * model)) * vec4(N, 1))); 
+			NV_v  = normalize(vec3(transpose(inverse(trans_mtx * model)) * vec4(NV, 1))); 
+            gl_Position = trans_mtx * proj * view * model * vec4(position, 1.0);
 			frag_pos = vec3(model * vec4(position, 1.0));
 		}
 	)";
@@ -543,10 +724,10 @@ int main(void) {
 	// However, the 'model' matrix must change for each model in the scene
 	Eigen::Matrix4f I = Eigen::Matrix4f::Identity();
 	program.bind();
-	glUniformMatrix4fv(program.uniform("view"), 1, GL_FALSE, I.data());
 	glUniformMatrix4fv(program.uniform("proj"), 1, GL_FALSE, I.data());
-	glUniform1i(program.uniform("mode"), bunny.mode); // bind mode
+	// glUniform1i(program.uniform("mode"), bunny.mode); // bind mode
 	glUniform3f(program.uniform("light_pos"), 1, 1, 1); // add light source
+	glUniformMatrix4fv(program.uniform("view"), 1, GL_FALSE, view.data());
 	// Register the keyboard callback
 	glfwSetKeyCallback(window, key_callback);
 
@@ -563,7 +744,16 @@ int main(void) {
 		glfwGetFramebufferSize(window, &width, &height);
 		glViewport(0, 0, width, height);
 
-		// Bind your program
+		float a_ratio = (float)height / (float)width;
+		view <<
+			a_ratio, 0, 0, 0, // init view matrix, fixed width
+			0, 1, 0, 0,
+			0, 0, 1, 0,
+			0, 0, 0, 1,
+			glUniformMatrix4fv(program.uniform("view"), 1, GL_FALSE,
+				view.data()); // bind uniform
+
+	// Bind your program
 		program.bind();
 
 		{
@@ -576,64 +766,85 @@ int main(void) {
 			glUniform3f(program.uniform("triangleColor"), 0.0f, 0.0f, 0.0f);
 
 			// Draw the triangles
-			switch (bunny.mode) {
-			case WIREFRAME: {
-				glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-				for (int i = 0; i < obj_num; ++i) {
-					if (bunny.obj_select[i] == 0) {
-						glUniform3f(program.uniform("triangleColor"), 0.0f, 0.0f, 0.0f);
-					}
-					else {
-						glUniform3f(program.uniform("triangleColor"), 1.0f, 0.0f, 0.0f); // red
-					}
-					glUniform1i(program.uniform("select"), bunny.obj_select[i]);
-					glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, bunny.mtx_list[i]->data());
-					glUniform1i(program.uniform("mode"), bunny.mode); // bind mode
+			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			for (int i = 0; i < obj_num; ++i) {
+				if (bunny.obj_select[i] == 0) {
+					glUniform3f(program.uniform("triangleColor"), 1.0f, 1.0f, 1.0f);
+				}
+				else {
+					glUniform3f(program.uniform("triangleColor"), 1.0f, 0.0f, 0.0f); // red
+				}
+				glUniformMatrix4fv(program.uniform("trans_mtx"), 1, GL_FALSE, bunny.trans_mtx_list[i]->data());
+				glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, bunny.mtx_list[i]->data());
+				glUniform1i(program.uniform("mode"), bunny.shading_mode[i]); // bind mode
+				if (bunny.shading_mode[i] == WIREFRAME) {
 					for (int j = 0; j < bunny.obj_v_num[i]; j += 3) {
 						glDrawArrays(GL_LINE_LOOP, bunny.off_num[i] + j, 3);
 					}
-				}
-				break;
-			}
-
-			case FLAT: {
-				glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-				for (int i = 0; i < obj_num; ++i) {
-					if (bunny.obj_select[i] == 0) {
-						glUniform3f(program.uniform("triangleColor"), 1.0f, 1.0f, 1.0f);
-					}
-					else {
-						glUniform3f(program.uniform("triangleColor"), 1.0f, 0.0f, 0.0f); // red
-					}
-					glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, bunny.mtx_list[i]->data());
-					glUniform1i(program.uniform("mode"), bunny.mode); // bind mode
+				} else if (bunny.shading_mode[i] == FLAT || bunny.shading_mode[i] == PHONG) {
 					glDrawArrays(GL_TRIANGLES, bunny.off_num[i], bunny.obj_v_num[i]);
-					glUniform1i(program.uniform("mode"), 0); // bind mode
 				}
-				break;
-			}
-
-			case PHONG: {
-				glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-				for (int i = 0; i < obj_num; ++i) {
-					if (bunny.obj_select[i] == 0) {
-						glUniform3f(program.uniform("triangleColor"), 1.0f, 1.0f, 1.0f);
-					}
-					else {
-						glUniform3f(program.uniform("triangleColor"), 1.0f, 0.0f, 0.0f); // red
-					}
-					glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, bunny.mtx_list[i]->data());
-					glUniform1i(program.uniform("mode"), bunny.mode); // bind mode
-					glDrawArrays(GL_TRIANGLES, bunny.off_num[i], bunny.obj_v_num[i]);
-					glUniform1i(program.uniform("mode"), 0); // bind mode
-				}
-				break;
-			}
 			}
 		}
+		// 	switch (bunny.mode) {
+		// 	case WIREFRAME: {
+		// 		for (int i = 0; i < obj_num; ++i) {
+		// 			if (bunny.obj_select[i] == 0) {
+		// 				glUniform3f(program.uniform("triangleColor"), 0.0f, 0.0f, 0.0f);
+		// 			}
+		// 			else {
+		// 				glUniform3f(program.uniform("triangleColor"), 1.0f, 0.0f, 0.0f); // red
+		// 			}
+		// 			glUniformMatrix4fv(program.uniform("trans_mtx"), 1, GL_FALSE, bunny.trans_mtx_list[i]->data());
+		// 			glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, bunny.mtx_list[i]->data());
+		// 			glUniform1i(program.uniform("mode"), bunny.mode); // bind mode
+		// 			for (int j = 0; j < bunny.obj_v_num[i]; j += 3) {
+		// 				glDrawArrays(GL_LINE_LOOP, bunny.off_num[i] + j, 3);
+		// 			}
+		// 		}
+		// 		break;
+		// 	}
+
+		// 	case FLAT: {
+		// 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		// 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		// 		for (int i = 0; i < obj_num; ++i) {
+		// 			if (bunny.obj_select[i] == 0) {
+		// 				glUniform3f(program.uniform("triangleColor"), 1.0f, 1.0f, 1.0f);
+		// 			}
+		// 			else {
+		// 				glUniform3f(program.uniform("triangleColor"), 1.0f, 0.0f, 0.0f); // red
+		// 			}
+		// 			glUniformMatrix4fv(program.uniform("trans_mtx"), 1, GL_FALSE, bunny.trans_mtx_list[i]->data());
+		// 			glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, bunny.mtx_list[i]->data());
+		// 			glUniform1i(program.uniform("mode"), bunny.mode); // bind mode
+		// 			glDrawArrays(GL_TRIANGLES, bunny.off_num[i], bunny.obj_v_num[i]);
+		// 			glUniform1i(program.uniform("mode"), 0); // bind mode
+		// 		}
+		// 		break;
+		// 	}
+
+		// 	case PHONG: {
+		// 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		// 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		// 		for (int i = 0; i < obj_num; ++i) {
+		// 			if (bunny.obj_select[i] == 0) {
+		// 				glUniform3f(program.uniform("triangleColor"), 1.0f, 1.0f, 1.0f);
+		// 			}
+		// 			else {
+		// 				glUniform3f(program.uniform("triangleColor"), 1.0f, 0.0f, 0.0f); // red
+		// 			}
+		// 			glUniformMatrix4fv(program.uniform("trans_mtx"), 1, GL_FALSE, bunny.trans_mtx_list[i]->data());
+		// 			glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, bunny.mtx_list[i]->data());
+		// 			glUniform1i(program.uniform("mode"), bunny.mode); // bind mode
+		// 			glDrawArrays(GL_TRIANGLES, bunny.off_num[i], bunny.obj_v_num[i]);
+		// 			glUniform1i(program.uniform("mode"), 0); // bind mode
+		// 		}
+		// 		break;
+		// 	}
+		// 	}
+		// }
 
 		// Swap front and back buffers
 		glfwSwapBuffers(window);
