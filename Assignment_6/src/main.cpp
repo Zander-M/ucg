@@ -545,23 +545,54 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 			}
 			break;
 		}
-		case GLFW_KEY_P: {
-			printf("rows: %ld\n", bunny.V.cols());
-			printf("obj_count: %d\n", obj_num);
-			std::cout << "Offset:" << std::endl;
-			for (int i = 0; i < bunny.off_num.size(); ++i)
-				std::cout << bunny.off_num[i] << " ";
-			std::cout << std::endl;
-			std::cout << "Vertex num:" << std::endl;
-			for (int i = 0; i < bunny.obj_v_num.size(); ++i)
-				std::cout << bunny.obj_v_num[i] << " ";
-			std::cout << std::endl;
-			for (int i = 0; i < bunny.mtx_list.size(); ++i)
-				std::cout << *(bunny.mtx_list[i]) << "\n" << std::endl;
-			printf("mode %d\n", bunny.mode);
-			std::cout << bunny.NV << std::endl;
+		case GLFW_KEY_UP: {
+			for (int i = 0; i < obj_num; ++i) {
+				Eigen::Matrix4f move;
+				move = Eigen::Matrix4f::Identity();
+				move(1, 3) = 0.2;
+				if (bunny.obj_select[i] == 1) {
+					*bunny.trans_mtx_list[i] = move * (*bunny.trans_mtx_list[i]);
+				}
+			}
 			break;
 		}
+
+		case GLFW_KEY_DOWN: {
+			for (int i = 0; i < obj_num; ++i) {
+				Eigen::Matrix4f move;
+				move = Eigen::Matrix4f::Identity();
+				move(1, 3) = -0.2;
+				if (bunny.obj_select[i] == 1) {
+					*bunny.trans_mtx_list[i] = move * (*bunny.trans_mtx_list[i]);
+				}
+			}
+			break;
+		}
+
+		case GLFW_KEY_LEFT: {
+			for (int i = 0; i < obj_num; ++i) {
+				Eigen::Matrix4f move;
+				move = Eigen::Matrix4f::Identity();
+				move(0, 3) = -0.2;
+				if (bunny.obj_select[i] == 1) {
+					*bunny.trans_mtx_list[i] = move * (*bunny.trans_mtx_list[i]);
+				}
+			}
+			break;
+		}
+
+		case GLFW_KEY_RIGHT: {
+			for (int i = 0; i < obj_num; ++i) {
+				Eigen::Matrix4f move;
+				move = Eigen::Matrix4f::Identity();
+				move(0, 3) = 0.2;
+				if (bunny.obj_select[i] == 1) {
+					*bunny.trans_mtx_list[i] = move * (*bunny.trans_mtx_list[i]);
+				}
+			}
+			break;
+		}	
+		
 		default:
 			break;
 		}
@@ -647,6 +678,7 @@ int main(void) {
 
 		uniform vec3 triangleColor;
 		uniform vec3 light_pos;
+		uniform vec3 cam_pos;
 		uniform int mode;
 
 		in vec3 N_v;
@@ -663,13 +695,21 @@ int main(void) {
 				float diff_mag = max(dot(N_v, light_dir), 0.0);
 				vec3 ambient = 0.1 * triangleColor;
 				vec3 diffuse = diff_mag * triangleColor;	
-				outColor = vec4(ambient + diffuse, 1.0);
+				vec3 cam_dir = normalize(frag_pos - cam_pos);
+				vec3 ref_dir = reflect(light_dir, N_v);
+				float spec = pow(max(dot(cam_dir, ref_dir), 0.0), 1000);
+				vec3 specular = 0.5 * spec * triangleColor; 
+				outColor = vec4(ambient + diffuse + specular, 1.0);
 			} else if (mode == 2) {
 				// use NV_v for PHONG SHADING
 				float diff_mag = max(dot(NV_v, light_dir), 0.0);
-				// vec3 ambient = 0.1 * triangleColor;
+				vec3 ambient = 0.1 * triangleColor;
 				vec3 diffuse = diff_mag * triangleColor;	
-				outColor = vec4(diffuse, 1.0);
+				vec3 cam_dir = normalize(frag_pos - cam_pos);
+				vec3 ref_dir = reflect(light_dir, NV_v);
+				float spec = pow(max(dot(cam_dir, ref_dir), 0.0), 1000);
+				vec3 specular = 0.5 * spec * triangleColor; 
+				outColor = vec4(ambient + diffuse + specular, 1.0);
 			} else {
 				// should not reach here
 				outColor = vec4(1.0, 1.0, 1.0, 1.0);
@@ -727,6 +767,7 @@ int main(void) {
 	glUniformMatrix4fv(program.uniform("proj"), 1, GL_FALSE, I.data());
 	// glUniform1i(program.uniform("mode"), bunny.mode); // bind mode
 	glUniform3f(program.uniform("light_pos"), 1, 1, 1); // add light source
+	glUniform3f(program.uniform("cam_pos"), 0, 0, 1);
 	glUniformMatrix4fv(program.uniform("view"), 1, GL_FALSE, view.data());
 	// Register the keyboard callback
 	glfwSetKeyCallback(window, key_callback);
@@ -787,64 +828,6 @@ int main(void) {
 				}
 			}
 		}
-		// 	switch (bunny.mode) {
-		// 	case WIREFRAME: {
-		// 		for (int i = 0; i < obj_num; ++i) {
-		// 			if (bunny.obj_select[i] == 0) {
-		// 				glUniform3f(program.uniform("triangleColor"), 0.0f, 0.0f, 0.0f);
-		// 			}
-		// 			else {
-		// 				glUniform3f(program.uniform("triangleColor"), 1.0f, 0.0f, 0.0f); // red
-		// 			}
-		// 			glUniformMatrix4fv(program.uniform("trans_mtx"), 1, GL_FALSE, bunny.trans_mtx_list[i]->data());
-		// 			glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, bunny.mtx_list[i]->data());
-		// 			glUniform1i(program.uniform("mode"), bunny.mode); // bind mode
-		// 			for (int j = 0; j < bunny.obj_v_num[i]; j += 3) {
-		// 				glDrawArrays(GL_LINE_LOOP, bunny.off_num[i] + j, 3);
-		// 			}
-		// 		}
-		// 		break;
-		// 	}
-
-		// 	case FLAT: {
-		// 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-		// 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		// 		for (int i = 0; i < obj_num; ++i) {
-		// 			if (bunny.obj_select[i] == 0) {
-		// 				glUniform3f(program.uniform("triangleColor"), 1.0f, 1.0f, 1.0f);
-		// 			}
-		// 			else {
-		// 				glUniform3f(program.uniform("triangleColor"), 1.0f, 0.0f, 0.0f); // red
-		// 			}
-		// 			glUniformMatrix4fv(program.uniform("trans_mtx"), 1, GL_FALSE, bunny.trans_mtx_list[i]->data());
-		// 			glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, bunny.mtx_list[i]->data());
-		// 			glUniform1i(program.uniform("mode"), bunny.mode); // bind mode
-		// 			glDrawArrays(GL_TRIANGLES, bunny.off_num[i], bunny.obj_v_num[i]);
-		// 			glUniform1i(program.uniform("mode"), 0); // bind mode
-		// 		}
-		// 		break;
-		// 	}
-
-		// 	case PHONG: {
-		// 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-		// 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		// 		for (int i = 0; i < obj_num; ++i) {
-		// 			if (bunny.obj_select[i] == 0) {
-		// 				glUniform3f(program.uniform("triangleColor"), 1.0f, 1.0f, 1.0f);
-		// 			}
-		// 			else {
-		// 				glUniform3f(program.uniform("triangleColor"), 1.0f, 0.0f, 0.0f); // red
-		// 			}
-		// 			glUniformMatrix4fv(program.uniform("trans_mtx"), 1, GL_FALSE, bunny.trans_mtx_list[i]->data());
-		// 			glUniformMatrix4fv(program.uniform("model"), 1, GL_FALSE, bunny.mtx_list[i]->data());
-		// 			glUniform1i(program.uniform("mode"), bunny.mode); // bind mode
-		// 			glDrawArrays(GL_TRIANGLES, bunny.off_num[i], bunny.obj_v_num[i]);
-		// 			glUniform1i(program.uniform("mode"), 0); // bind mode
-		// 		}
-		// 		break;
-		// 	}
-		// 	}
-		// }
 
 		// Swap front and back buffers
 		glfwSwapBuffers(window);
@@ -853,6 +836,10 @@ int main(void) {
 		glfwPollEvents();
 	}
 
+	for (int i = 0; i < obj_num; ++i) {
+		delete bunny.mtx_list[i];
+		delete bunny.trans_mtx_list[i];
+	}
 	// Deallocate opengl memory
 	program.free();
 	bunny.vao.free();
